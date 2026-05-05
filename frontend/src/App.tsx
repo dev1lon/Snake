@@ -32,6 +32,7 @@ type Action =
   | { type: "pause" }
   | { type: "reset" }
   | { type: "move"; direction: Direction }
+  | { type: "ensureFood" }
   | { type: "tick" };
 
 const BOARD_CELLS = 16;
@@ -86,6 +87,17 @@ function getFood(snake: Point[]): Point | null {
   return freeCells[Math.floor(Math.random() * freeCells.length)];
 }
 
+function isFoodValid(food: Point | null, snake: Point[]) {
+  return Boolean(
+    food &&
+      food.x >= 0 &&
+      food.y >= 0 &&
+      food.x < BOARD_CELLS &&
+      food.y < BOARD_CELLS &&
+      !snake.some((part) => samePoint(part, food))
+  );
+}
+
 function createGame(status: GameStatus = "idle"): GameState {
   const snake = makeInitialSnake();
 
@@ -137,11 +149,19 @@ function reducer(state: GameState, action: Action): GameState {
 
       return { ...state, queuedDirection: action.direction };
 
+    case "ensureFood":
+      if (state.status === "won" || state.snake.length >= TOTAL_CELLS || isFoodValid(state.food, state.snake)) {
+        return state;
+      }
+
+      return { ...state, food: getFood(state.snake) };
+
     case "tick": {
       if (state.status !== "running") {
         return state;
       }
 
+      const currentFood = isFoodValid(state.food, state.snake) ? state.food : getFood(state.snake);
       const direction = state.queuedDirection;
       const head = state.snake[0];
       const vector = vectors[direction];
@@ -151,7 +171,7 @@ function reducer(state: GameState, action: Action): GameState {
         nextHead.y < 0 ||
         nextHead.x >= BOARD_CELLS ||
         nextHead.y >= BOARD_CELLS;
-      const eating = state.food ? samePoint(nextHead, state.food) : false;
+      const eating = currentFood ? samePoint(nextHead, currentFood) : false;
       const collisionBody = eating ? state.snake : state.snake.slice(0, -1);
       const selfHit = collisionBody.some((part) => samePoint(part, nextHead));
 
@@ -173,7 +193,7 @@ function reducer(state: GameState, action: Action): GameState {
       return {
         ...state,
         snake: nextSnake,
-        food: won ? null : eating ? getFood(nextSnake) : state.food,
+        food: won ? null : eating || !currentFood ? getFood(nextSnake) : currentFood,
         direction,
         moves,
         status: won ? "won" : "running",
@@ -208,6 +228,12 @@ function App() {
     image.onerror = () => setCoinReady(false);
     coinImageRef.current = image;
   }, []);
+
+  useEffect(() => {
+    if (game.status !== "won" && game.snake.length < TOTAL_CELLS && !isFoodValid(game.food, game.snake)) {
+      dispatch({ type: "ensureFood" });
+    }
+  }, [game.food, game.snake, game.status]);
 
   useEffect(() => {
     const snakeChanged = game.snake !== targetSnakeRef.current;
