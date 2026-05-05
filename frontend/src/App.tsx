@@ -209,6 +209,10 @@ function reducer(state: GameState, action: Action): GameState {
 function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const coinImageRef = useRef<HTMLImageElement | null>(null);
+  const gameRef = useRef<GameState>(createGame());
+  const previousSnakeRef = useRef<Point[]>(gameRef.current.snake);
+  const targetSnakeRef = useRef<Point[]>(gameRef.current.snake);
+  const animationStartRef = useRef(0);
   const [game, dispatch] = useReducer(reducer, undefined, () => createGame());
   const [playerName, setPlayerName] = useState("Player");
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -245,6 +249,13 @@ function App() {
 
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    previousSnakeRef.current = targetSnakeRef.current;
+    targetSnakeRef.current = game.snake;
+    gameRef.current = game;
+    animationStartRef.current = performance.now();
+  }, [game]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -298,12 +309,35 @@ function App() {
     }
 
     const logicalSize = 720;
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    canvas.width = logicalSize * devicePixelRatio;
-    canvas.height = logicalSize * devicePixelRatio;
-    context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    drawGame(context, logicalSize, game, coinReady ? coinImageRef.current : null);
-  }, [coinReady, game]);
+    let frame = 0;
+
+    const render = (now: number) => {
+      const devicePixelRatio = window.devicePixelRatio || 1;
+
+      if (
+        canvas.width !== logicalSize * devicePixelRatio ||
+        canvas.height !== logicalSize * devicePixelRatio
+      ) {
+        canvas.width = logicalSize * devicePixelRatio;
+        canvas.height = logicalSize * devicePixelRatio;
+        context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+      }
+
+      const progress = Math.min(1, (now - animationStartRef.current) / STEP_MS);
+      const easedProgress = easeOutCubic(progress);
+      const renderGame = {
+        ...gameRef.current,
+        snake: interpolateSnake(previousSnakeRef.current, targetSnakeRef.current, easedProgress)
+      };
+
+      drawGame(context, logicalSize, renderGame, coinReady ? coinImageRef.current : null);
+      frame = requestAnimationFrame(render);
+    };
+
+    frame = requestAnimationFrame(render);
+
+    return () => cancelAnimationFrame(frame);
+  }, [coinReady]);
 
   const statusText = useMemo(() => {
     if (game.status === "won") {
@@ -390,29 +424,21 @@ function App() {
       </section>
 
       <section className="controls-area" aria-label="Snake controls">
-        <div className="control-strip">
-          <button
-            className="icon-button"
-            type="button"
-            title={game.status === "running" ? "Pause" : "Play"}
-            aria-label={game.status === "running" ? "Pause" : "Play"}
-            onClick={() => dispatch({ type: game.status === "running" ? "pause" : "start" })}
-          >
-            {game.status === "running" ? <Pause /> : <Play />}
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            title="Restart"
-            aria-label="Restart"
-            onClick={() => dispatch({ type: "reset" })}
-          >
-            <RotateCcw />
-          </button>
-        </div>
-
         <div className="lower-grid">
           <div className="dpad" aria-label="Direction buttons">
+            {game.status === "paused" ? (
+              <button
+                className="dpad-button restart"
+                type="button"
+                title="Restart"
+                aria-label="Restart"
+                onClick={() => dispatch({ type: "reset" })}
+              >
+                <RotateCcw />
+              </button>
+            ) : (
+              <span className="dpad-spacer restart" aria-hidden="true" />
+            )}
             <button
               className="dpad-button up"
               type="button"
@@ -503,6 +529,21 @@ function App() {
       </section>
     </main>
   );
+}
+
+function easeOutCubic(value: number) {
+  return 1 - Math.pow(1 - value, 3);
+}
+
+function interpolateSnake(previousSnake: Point[], targetSnake: Point[], progress: number): Point[] {
+  return targetSnake.map((target, index) => {
+    const previous = previousSnake[index] ?? previousSnake[previousSnake.length - 1] ?? target;
+
+    return {
+      x: previous.x + (target.x - previous.x) * progress,
+      y: previous.y + (target.y - previous.y) * progress
+    };
+  });
 }
 
 function formatSaveState(state: "idle" | "saving" | "saved" | "error") {

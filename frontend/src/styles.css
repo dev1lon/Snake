@@ -16,8 +16,8 @@
   --cyan: #37c2ff;
   --amber: #f4c542;
   --red: #f06258;
-  --controls-height: clamp(247px, 34.2dvh, 323px);
-  --mobile-controls-height: clamp(295px, 41.8dvh, 371px);
+  --controls-height: clamp(222px, 30.8dvh, 291px);
+  --mobile-controls-height: clamp(266px, 37.6dvh, 334px);
 }
 
 * {
@@ -115,7 +115,7 @@ input {
 }
 
 canvas {
-  width: min(100%, calc(100dvh - var(--controls-height) - 96px));
+  width: min(100%, calc(100dvh - var(--controls-height) - 84px));
   max-width: 100%;
   max-height: 100%;
   aspect-ratio: 1;
@@ -146,23 +146,15 @@ canvas {
 
 .controls-area {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 12px clamp(14px, 3vw, 32px) 16px;
+  padding: 8px clamp(14px, 3vw, 32px) 12px;
   background:
     linear-gradient(180deg, rgba(8, 24, 48, 0.92), rgba(6, 15, 30, 0.98)),
     #081830;
 }
 
-.control-strip {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-}
-
-.icon-button,
 .save-button,
 .dpad-button,
 .dpad-center {
@@ -177,21 +169,12 @@ canvas {
     background 120ms ease;
 }
 
-.icon-button:active,
 .save-button:active,
 .dpad-button:active,
 .dpad-center:active {
   transform: translateY(1px) scale(0.98);
 }
 
-.icon-button {
-  width: 44px;
-  height: 38px;
-  border-radius: 8px;
-  background: #202938;
-}
-
-.icon-button svg,
 .save-button svg,
 .dpad-button svg,
 .dpad-center svg {
@@ -212,9 +195,13 @@ canvas {
 .dpad {
   display: grid;
   grid-template-columns: repeat(3, clamp(51px, 14.25vw, 72px));
-  grid-template-rows: repeat(3, clamp(44px, 10.45vw, 59px));
-  gap: 8px;
+  grid-template-rows: repeat(4, clamp(36px, 8.8vw, 52px));
+  gap: 7px;
   justify-content: center;
+}
+
+.dpad-spacer {
+  display: block;
 }
 
 .dpad-button,
@@ -234,35 +221,39 @@ canvas {
 
 .dpad-button:hover,
 .dpad-center:hover,
-.icon-button:hover,
 .save-button:hover:not(:disabled) {
   border-color: rgba(55, 194, 255, 0.82);
   background-color: #153b78;
 }
 
-.up {
+.restart {
   grid-column: 2;
   grid-row: 1;
 }
 
+.up {
+  grid-column: 2;
+  grid-row: 2;
+}
+
 .left {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 3;
 }
 
 .dpad-center {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 3;
 }
 
 .right {
   grid-column: 3;
-  grid-row: 2;
+  grid-row: 3;
 }
 
 .down {
   grid-column: 2;
-  grid-row: 3;
+  grid-row: 4;
 }
 
 .score-panel {
@@ -392,7 +383,7 @@ canvas {
   }
 
   canvas {
-    width: min(100%, calc(100dvh - var(--mobile-controls-height) - 84px));
+    width: min(100%, calc(100dvh - var(--mobile-controls-height) - 76px));
   }
 
   .lower-grid {
@@ -402,7 +393,7 @@ canvas {
 
   .dpad {
     grid-template-columns: repeat(3, clamp(55px, 17.1vw, 70px));
-    grid-template-rows: repeat(3, clamp(42px, 11.4vw, 53px));
+    grid-template-rows: repeat(4, clamp(34px, 9.8vw, 48px));
   }
 
   .score-panel {
