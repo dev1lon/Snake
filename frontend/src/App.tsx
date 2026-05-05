@@ -3,13 +3,9 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  Pause,
-  Play,
-  RotateCcw,
-  Save,
-  Trophy
+  RotateCcw
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 type Point = {
   x: number;
@@ -29,15 +25,6 @@ type GameState = {
   status: GameStatus;
 };
 
-type LeaderboardEntry = {
-  id: string;
-  name: string;
-  score: number;
-  cells: number;
-  won: boolean;
-  createdAt: string;
-};
-
 type Action =
   | { type: "start" }
   | { type: "pause" }
@@ -49,7 +36,7 @@ const BOARD_CELLS = 16;
 const TOTAL_CELLS = BOARD_CELLS * BOARD_CELLS;
 const START_LENGTH = 1;
 const STEP_MS = 236;
-const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
+const ANIMATION_MS = 132;
 
 const vectors: Record<Direction, Point> = {
   up: { x: 0, y: -1 },
@@ -57,14 +44,6 @@ const vectors: Record<Direction, Point> = {
   left: { x: -1, y: 0 },
   right: { x: 1, y: 0 }
 };
-
-function normalizeApiUrl(value: string | undefined) {
-  if (!value) {
-    return "http://localhost:4000";
-  }
-
-  return value.startsWith("http") ? value : `https://${value}`;
-}
 
 function samePoint(a: Point, b: Point) {
   return a.x === b.x && a.y === b.y;
@@ -209,32 +188,12 @@ function reducer(state: GameState, action: Action): GameState {
 function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const coinImageRef = useRef<HTMLImageElement | null>(null);
-  const gameRef = useRef<GameState>(createGame());
-  const previousSnakeRef = useRef<Point[]>(gameRef.current.snake);
-  const targetSnakeRef = useRef<Point[]>(gameRef.current.snake);
-  const animationStartRef = useRef(0);
+  const animationFrameRef = useRef(0);
   const [game, dispatch] = useReducer(reducer, undefined, () => createGame());
-  const [playerName, setPlayerName] = useState("Player");
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [coinReady, setCoinReady] = useState(false);
 
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
-  const gameFinished = game.status === "lost" || game.status === "won";
-
-  const fetchLeaderboard = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/leaderboard`);
-      const data = (await response.json()) as { entries: LeaderboardEntry[] };
-      setLeaderboard(data.entries);
-    } catch {
-      setLeaderboard([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchLeaderboard();
-  }, [fetchLeaderboard]);
+  const previousSnakeRef = useRef<Point[]>(game.snake);
 
   useEffect(() => {
     const image = new Image();
@@ -249,13 +208,6 @@ function App() {
 
     return () => window.clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    previousSnakeRef.current = targetSnakeRef.current;
-    targetSnakeRef.current = game.snake;
-    gameRef.current = game;
-    animationStartRef.current = performance.now();
-  }, [game]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -309,9 +261,11 @@ function App() {
     }
 
     const logicalSize = 720;
-    let frame = 0;
+    const previousSnake = previousSnakeRef.current;
+    const targetSnake = game.snake;
+    const startedAt = performance.now();
 
-    const render = (now: number) => {
+    const drawFrame = (now: number) => {
       const devicePixelRatio = window.devicePixelRatio || 1;
 
       if (
@@ -323,21 +277,26 @@ function App() {
         context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
       }
 
-      const progress = Math.min(1, (now - animationStartRef.current) / STEP_MS);
+      const progress = game.status === "running" ? Math.min(1, (now - startedAt) / ANIMATION_MS) : 1;
       const easedProgress = easeOutCubic(progress);
       const renderGame = {
-        ...gameRef.current,
-        snake: interpolateSnake(previousSnakeRef.current, targetSnakeRef.current, easedProgress)
+        ...game,
+        snake: interpolateSnake(previousSnake, targetSnake, easedProgress)
       };
 
       drawGame(context, logicalSize, renderGame, coinReady ? coinImageRef.current : null);
-      frame = requestAnimationFrame(render);
+
+      if (progress < 1) {
+        animationFrameRef.current = requestAnimationFrame(drawFrame);
+      }
     };
 
-    frame = requestAnimationFrame(render);
+    cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = requestAnimationFrame(drawFrame);
+    previousSnakeRef.current = targetSnake;
 
-    return () => cancelAnimationFrame(frame);
-  }, [coinReady]);
+    return () => cancelAnimationFrame(animationFrameRef.current);
+  }, [coinReady, game]);
 
   const statusText = useMemo(() => {
     if (game.status === "won") {
@@ -359,36 +318,12 @@ function App() {
     return "Ready";
   }, [game.status]);
 
-  const saveScore = async () => {
-    setSaveState("saving");
-
-    try {
-      const response = await fetch(`${API_URL}/api/leaderboard`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          name: playerName,
-          score: game.score,
-          cells: game.snake.length,
-          won: game.status === "won"
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to save score.");
-      }
-
-      setSaveState("saved");
-      await fetchLeaderboard();
-    } catch {
-      setSaveState("error");
-    }
-  };
-
   const move = (direction: Direction) => {
     dispatch({ type: "move", direction });
+  };
+
+  const togglePlay = () => {
+    dispatch({ type: game.status === "running" ? "pause" : "start" });
   };
 
   return (
@@ -408,6 +343,18 @@ function App() {
 
         <div className="canvas-shell">
           <canvas ref={canvasRef} aria-label="Snake board" />
+          {game.status !== "lost" && game.status !== "won" && (
+            <button
+              className="board-pause-button"
+              type="button"
+              title={game.status === "running" ? "Pause" : "Play"}
+              aria-label={game.status === "running" ? "Pause" : "Play"}
+              onPointerDown={togglePlay}
+            >
+              <span />
+              <span />
+            </button>
+          )}
           {game.status !== "running" && (
             <div className="overlay" aria-live="polite">
               <strong>{game.status === "idle" ? "Press play" : statusText}</strong>
@@ -444,7 +391,7 @@ function App() {
               type="button"
               title="Up"
               aria-label="Up"
-              onClick={() => move("up")}
+              onPointerDown={() => move("up")}
             >
               <ArrowUp />
             </button>
@@ -453,25 +400,17 @@ function App() {
               type="button"
               title="Left"
               aria-label="Left"
-              onClick={() => move("left")}
+              onPointerDown={() => move("left")}
             >
               <ArrowLeft />
             </button>
-            <button
-              className="dpad-center"
-              type="button"
-              title={game.status === "running" ? "Pause" : "Play"}
-              aria-label={game.status === "running" ? "Pause" : "Play"}
-              onClick={() => dispatch({ type: game.status === "running" ? "pause" : "start" })}
-            >
-              {game.status === "running" ? <Pause /> : <Play />}
-            </button>
+            <span className="dpad-spacer dpad-center" aria-hidden="true" />
             <button
               className="dpad-button right"
               type="button"
               title="Right"
               aria-label="Right"
-              onClick={() => move("right")}
+              onPointerDown={() => move("right")}
             >
               <ArrowRight />
             </button>
@@ -480,50 +419,10 @@ function App() {
               type="button"
               title="Down"
               aria-label="Down"
-              onClick={() => move("down")}
+              onPointerDown={() => move("down")}
             >
               <ArrowDown />
             </button>
-          </div>
-
-          <div className="score-panel">
-            <div className="leader-header">
-              <Trophy />
-              <span>Leaderboard</span>
-            </div>
-
-            {leaderboard.length === 0 ? (
-              <p className="empty-state">No saved scores yet.</p>
-            ) : (
-              <ol className="leaderboard">
-                {leaderboard.slice(0, 5).map((entry) => (
-                  <li key={entry.id}>
-                    <span>{entry.name}</span>
-                    <strong>{entry.score}</strong>
-                  </li>
-                ))}
-              </ol>
-            )}
-
-            <div className="save-row">
-              <input
-                aria-label="Player name"
-                maxLength={18}
-                value={playerName}
-                onChange={(event) => setPlayerName(event.target.value)}
-              />
-              <button
-                className="save-button"
-                type="button"
-                title="Save score"
-                aria-label="Save score"
-                disabled={!gameFinished || saveState === "saving"}
-                onClick={saveScore}
-              >
-                <Save />
-              </button>
-            </div>
-            <span className={`save-state ${saveState}`}>{formatSaveState(saveState)}</span>
           </div>
         </div>
       </section>
@@ -544,19 +443,6 @@ function interpolateSnake(previousSnake: Point[], targetSnake: Point[], progress
       y: previous.y + (target.y - previous.y) * progress
     };
   });
-}
-
-function formatSaveState(state: "idle" | "saving" | "saved" | "error") {
-  switch (state) {
-    case "saving":
-      return "Saving...";
-    case "saved":
-      return "Saved";
-    case "error":
-      return "Backend offline";
-    default:
-      return "Save after finish";
-  }
 }
 
 function drawGame(
@@ -625,12 +511,14 @@ function drawCoin(
   cell: number,
   coinImage: HTMLImageElement | null
 ) {
-  const inset = cell * 0.12;
+  const inset = cell * 0.04;
   const x = food.x * cell + inset;
   const y = food.y * cell + inset;
   const size = cell - inset * 2;
 
   if (coinImage?.complete && coinImage.naturalWidth > 0) {
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
     context.drawImage(coinImage, x, y, size, size);
     return;
   }
