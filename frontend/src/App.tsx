@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Pause,
   Play,
   RotateCcw
 } from "lucide-react";
@@ -323,10 +324,6 @@ function App() {
     dispatch({ type: "move", direction });
   };
 
-  const togglePlay = () => {
-    dispatch({ type: game.status === "running" ? "pause" : "start" });
-  };
-
   return (
     <main className="app">
       <section className="game-area" aria-label="Snake game board">
@@ -344,17 +341,11 @@ function App() {
 
         <div className="canvas-shell">
           <canvas ref={canvasRef} aria-label="Snake board" />
-          {game.status === "running" && (
-            <button
-              className="board-pause-button"
-              type="button"
-              title="Pause"
-              aria-label="Pause"
-              onPointerDown={togglePlay}
-            >
+          {game.status === "paused" && (
+            <div className="board-pause-mark" aria-hidden="true">
               <span />
               <span />
-            </button>
+            </div>
           )}
           {game.status !== "running" && (
             <div className="overlay" aria-live="polite">
@@ -405,19 +396,19 @@ function App() {
             >
               <ArrowLeft />
             </button>
-            {game.status === "running" ? (
-              <span className="dpad-spacer dpad-center" aria-hidden="true" />
-            ) : (
-              <button
-                className="dpad-center"
-                type="button"
-                title={game.status === "paused" ? "Resume" : "Start"}
-                aria-label={game.status === "paused" ? "Resume" : "Start"}
-                onPointerDown={() => dispatch({ type: "start" })}
-              >
-                <Play />
-              </button>
-            )}
+            <button
+              className="dpad-center"
+              type="button"
+              title={
+                game.status === "running" ? "Pause" : game.status === "paused" ? "Resume" : "Start"
+              }
+              aria-label={
+                game.status === "running" ? "Pause" : game.status === "paused" ? "Resume" : "Start"
+              }
+              onPointerDown={() => dispatch({ type: game.status === "running" ? "pause" : "start" })}
+            >
+              {game.status === "running" ? <Pause /> : <Play />}
+            </button>
             <button
               className="dpad-button right"
               type="button"
