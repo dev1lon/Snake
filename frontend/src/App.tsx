@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Play,
   RotateCcw
 } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -343,12 +344,12 @@ function App() {
 
         <div className="canvas-shell">
           <canvas ref={canvasRef} aria-label="Snake board" />
-          {game.status !== "lost" && game.status !== "won" && (
+          {game.status === "running" && (
             <button
               className="board-pause-button"
               type="button"
-              title={game.status === "running" ? "Pause" : "Play"}
-              aria-label={game.status === "running" ? "Pause" : "Play"}
+              title="Pause"
+              aria-label="Pause"
               onPointerDown={togglePlay}
             >
               <span />
@@ -379,7 +380,7 @@ function App() {
                 type="button"
                 title="Restart"
                 aria-label="Restart"
-                onClick={() => dispatch({ type: "reset" })}
+                onPointerDown={() => dispatch({ type: "reset" })}
               >
                 <RotateCcw />
               </button>
@@ -404,7 +405,19 @@ function App() {
             >
               <ArrowLeft />
             </button>
-            <span className="dpad-spacer dpad-center" aria-hidden="true" />
+            {game.status === "running" ? (
+              <span className="dpad-spacer dpad-center" aria-hidden="true" />
+            ) : (
+              <button
+                className="dpad-center"
+                type="button"
+                title={game.status === "paused" ? "Resume" : "Start"}
+                aria-label={game.status === "paused" ? "Resume" : "Start"}
+                onPointerDown={() => dispatch({ type: "start" })}
+              >
+                <Play />
+              </button>
+            )}
             <button
               className="dpad-button right"
               type="button"
