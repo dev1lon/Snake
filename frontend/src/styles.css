@@ -10,10 +10,14 @@
   --panel-strong: #151d29;
   --line: rgba(255, 255, 255, 0.12);
   --text-muted: #a9b7c5;
+  --base-blue: #0052ff;
+  --base-blue-soft: #1b6dff;
   --green: #45f09d;
-  --cyan: #23b9d6;
+  --cyan: #37c2ff;
   --amber: #f4c542;
   --red: #f06258;
+  --controls-height: clamp(247px, 34.2dvh, 323px);
+  --mobile-controls-height: clamp(295px, 41.8dvh, 371px);
 }
 
 * {
@@ -38,12 +42,12 @@ input {
 
 .app {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) clamp(260px, 36dvh, 340px);
+  grid-template-rows: minmax(0, 1fr) var(--controls-height);
   width: 100vw;
   height: 100dvh;
   background:
-    radial-gradient(circle at 18% 12%, rgba(35, 185, 214, 0.16), transparent 28%),
-    linear-gradient(135deg, #080b10 0%, #11151d 48%, #191417 100%);
+    radial-gradient(circle at 18% 12%, rgba(0, 82, 255, 0.22), transparent 30%),
+    linear-gradient(135deg, #050b16 0%, #071733 50%, #060a12 100%);
 }
 
 .game-area {
@@ -67,7 +71,7 @@ input {
 }
 
 .eyebrow {
-  color: var(--amber);
+  color: var(--base-blue-soft);
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -106,12 +110,12 @@ input {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
-  background: #0c1118;
+  background: #061325;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.38);
 }
 
 canvas {
-  width: min(100%, calc(100dvh - clamp(260px, 36dvh, 340px) - 96px));
+  width: min(100%, calc(100dvh - var(--controls-height) - 96px));
   max-width: 100%;
   max-height: 100%;
   aspect-ratio: 1;
@@ -148,8 +152,8 @@ canvas {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   padding: 12px clamp(14px, 3vw, 32px) 16px;
   background:
-    linear-gradient(180deg, rgba(21, 29, 41, 0.86), rgba(12, 17, 24, 0.98)),
-    #101620;
+    linear-gradient(180deg, rgba(8, 24, 48, 0.92), rgba(6, 15, 30, 0.98)),
+    #081830;
 }
 
 .control-strip {
@@ -181,8 +185,8 @@ canvas {
 }
 
 .icon-button {
-  width: 46px;
-  height: 40px;
+  width: 44px;
+  height: 38px;
   border-radius: 8px;
   background: #202938;
 }
@@ -207,8 +211,8 @@ canvas {
 
 .dpad {
   display: grid;
-  grid-template-columns: repeat(3, clamp(54px, 15vw, 76px));
-  grid-template-rows: repeat(3, clamp(46px, 11vw, 62px));
+  grid-template-columns: repeat(3, clamp(51px, 14.25vw, 72px));
+  grid-template-rows: repeat(3, clamp(44px, 10.45vw, 59px));
   gap: 8px;
   justify-content: center;
 }
@@ -221,19 +225,19 @@ canvas {
 }
 
 .dpad-button {
-  background: linear-gradient(180deg, #273140, #192130);
+  background: linear-gradient(180deg, #123265, #0c2147);
 }
 
 .dpad-center {
-  background: linear-gradient(180deg, rgba(69, 240, 157, 0.28), rgba(35, 185, 214, 0.18));
+  background: linear-gradient(180deg, rgba(0, 82, 255, 0.82), rgba(16, 93, 255, 0.46));
 }
 
 .dpad-button:hover,
 .dpad-center:hover,
 .icon-button:hover,
 .save-button:hover:not(:disabled) {
-  border-color: rgba(69, 240, 157, 0.72);
-  background-color: #263244;
+  border-color: rgba(55, 194, 255, 0.82);
+  background-color: #153b78;
 }
 
 .up {
@@ -279,7 +283,7 @@ canvas {
 .leader-header svg {
   width: 18px;
   height: 18px;
-  color: var(--amber);
+  color: var(--base-blue-soft);
 }
 
 .leaderboard {
@@ -311,7 +315,7 @@ canvas {
 }
 
 .leaderboard strong {
-  color: var(--green);
+  color: var(--cyan);
 }
 
 .empty-state,
@@ -370,7 +374,7 @@ canvas {
 
 @media (max-width: 720px) {
   .app {
-    grid-template-rows: minmax(0, 1fr) clamp(310px, 44dvh, 390px);
+    grid-template-rows: minmax(0, 1fr) var(--mobile-controls-height);
   }
 
   .game-area {
@@ -388,7 +392,7 @@ canvas {
   }
 
   canvas {
-    width: min(100%, calc(100dvh - clamp(310px, 44dvh, 390px) - 84px));
+    width: min(100%, calc(100dvh - var(--mobile-controls-height) - 84px));
   }
 
   .lower-grid {
@@ -397,8 +401,8 @@ canvas {
   }
 
   .dpad {
-    grid-template-columns: repeat(3, clamp(58px, 18vw, 74px));
-    grid-template-rows: repeat(3, clamp(44px, 12vw, 56px));
+    grid-template-columns: repeat(3, clamp(55px, 17.1vw, 70px));
+    grid-template-rows: repeat(3, clamp(42px, 11.4vw, 53px));
   }
 
   .score-panel {

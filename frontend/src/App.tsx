@@ -47,8 +47,8 @@ type Action =
 
 const BOARD_CELLS = 16;
 const TOTAL_CELLS = BOARD_CELLS * BOARD_CELLS;
-const START_LENGTH = 3;
-const STEP_MS = 118;
+const START_LENGTH = 1;
+const STEP_MS = 236;
 const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 
 const vectors: Record<Direction, Point> = {
@@ -83,11 +83,7 @@ function makeInitialSnake(): Point[] {
   const y = Math.floor(BOARD_CELLS / 2);
   const x = Math.floor(BOARD_CELLS / 2);
 
-  return [
-    { x, y },
-    { x: x - 1, y },
-    { x: x - 2, y }
-  ];
+  return [{ x, y }];
 }
 
 function getFood(snake: Point[]): Point | null {
@@ -155,7 +151,7 @@ function reducer(state: GameState, action: Action): GameState {
       return createGame("idle");
 
     case "move":
-      if (isOpposite(state.direction, action.direction)) {
+      if (state.snake.length > 1 && isOpposite(state.direction, action.direction)) {
         return state;
       }
 
@@ -212,10 +208,12 @@ function reducer(state: GameState, action: Action): GameState {
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const coinImageRef = useRef<HTMLImageElement | null>(null);
   const [game, dispatch] = useReducer(reducer, undefined, () => createGame());
   const [playerName, setPlayerName] = useState("Player");
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [coinReady, setCoinReady] = useState(false);
 
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
   const gameFinished = game.status === "lost" || game.status === "won";
@@ -233,6 +231,14 @@ function App() {
   useEffect(() => {
     void fetchLeaderboard();
   }, [fetchLeaderboard]);
+
+  useEffect(() => {
+    const image = new Image();
+    image.src = "/coin.png";
+    image.onload = () => setCoinReady(true);
+    image.onerror = () => setCoinReady(false);
+    coinImageRef.current = image;
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => dispatch({ type: "tick" }), STEP_MS);
@@ -296,8 +302,8 @@ function App() {
     canvas.width = logicalSize * devicePixelRatio;
     canvas.height = logicalSize * devicePixelRatio;
     context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    drawGame(context, logicalSize, game);
-  }, [game]);
+    drawGame(context, logicalSize, game, coinReady ? coinImageRef.current : null);
+  }, [coinReady, game]);
 
   const statusText = useMemo(() => {
     if (game.status === "won") {
@@ -512,21 +518,26 @@ function formatSaveState(state: "idle" | "saving" | "saved" | "error") {
   }
 }
 
-function drawGame(context: CanvasRenderingContext2D, size: number, game: GameState) {
+function drawGame(
+  context: CanvasRenderingContext2D,
+  size: number,
+  game: GameState,
+  coinImage: HTMLImageElement | null
+) {
   const cell = size / BOARD_CELLS;
 
   context.clearRect(0, 0, size, size);
-  context.fillStyle = "#11151d";
+  context.fillStyle = "#07111f";
   context.fillRect(0, 0, size, size);
 
   for (let y = 0; y < BOARD_CELLS; y += 1) {
     for (let x = 0; x < BOARD_CELLS; x += 1) {
-      context.fillStyle = (x + y) % 2 === 0 ? "#171c26" : "#151a23";
+      context.fillStyle = (x + y) % 2 === 0 ? "#0c1d36" : "#08172b";
       context.fillRect(x * cell, y * cell, cell, cell);
     }
   }
 
-  context.strokeStyle = "rgba(255, 255, 255, 0.07)";
+  context.strokeStyle = "rgba(0, 82, 255, 0.18)";
   context.lineWidth = 1;
 
   for (let i = 0; i <= BOARD_CELLS; i += 1) {
@@ -542,17 +553,7 @@ function drawGame(context: CanvasRenderingContext2D, size: number, game: GameSta
   }
 
   if (game.food) {
-    const centerX = game.food.x * cell + cell / 2;
-    const centerY = game.food.y * cell + cell / 2;
-    const radius = cell * 0.28;
-
-    context.fillStyle = "#f4c542";
-    context.beginPath();
-    context.arc(centerX, centerY, radius, 0, Math.PI * 2);
-    context.fill();
-    context.strokeStyle = "#f07f3c";
-    context.lineWidth = cell * 0.08;
-    context.stroke();
+    drawCoin(context, game.food, cell, coinImage);
   }
 
   game.snake.forEach((part, index) => {
@@ -562,12 +563,12 @@ function drawGame(context: CanvasRenderingContext2D, size: number, game: GameSta
     const width = cell - inset * 2;
     const radius = Math.max(6, cell * 0.16);
 
-    context.fillStyle = index === 0 ? "#45f09d" : index % 3 === 0 ? "#23b9d6" : "#35d47f";
+    context.fillStyle = index === 0 ? "#0052ff" : index % 3 === 0 ? "#1b6dff" : "#0b5cff";
     roundedRect(context, x, y, width, width, radius);
     context.fill();
 
     if (index === 0) {
-      context.fillStyle = "#0b1410";
+      context.fillStyle = "#ffffff";
       const eyeOffset = cell * 0.18;
       context.beginPath();
       context.arc(x + width * 0.34, y + eyeOffset + width * 0.22, cell * 0.055, 0, Math.PI * 2);
@@ -575,6 +576,38 @@ function drawGame(context: CanvasRenderingContext2D, size: number, game: GameSta
       context.fill();
     }
   });
+}
+
+function drawCoin(
+  context: CanvasRenderingContext2D,
+  food: Point,
+  cell: number,
+  coinImage: HTMLImageElement | null
+) {
+  const inset = cell * 0.12;
+  const x = food.x * cell + inset;
+  const y = food.y * cell + inset;
+  const size = cell - inset * 2;
+
+  if (coinImage?.complete && coinImage.naturalWidth > 0) {
+    context.drawImage(coinImage, x, y, size, size);
+    return;
+  }
+
+  const centerX = food.x * cell + cell / 2;
+  const centerY = food.y * cell + cell / 2;
+  const radius = cell * 0.36;
+
+  context.fillStyle = "#0052ff";
+  context.beginPath();
+  context.arc(centerX, centerY, radius, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = "#ffffff";
+  context.beginPath();
+  context.arc(centerX, centerY, radius * 0.62, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = "#0052ff";
+  context.fillRect(centerX - radius * 0.92, centerY - radius * 0.08, radius * 1.2, radius * 0.16);
 }
 
 function roundedRect(
