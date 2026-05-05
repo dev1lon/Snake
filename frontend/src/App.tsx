@@ -38,7 +38,6 @@ const BOARD_CELLS = 16;
 const TOTAL_CELLS = BOARD_CELLS * BOARD_CELLS;
 const START_LENGTH = 1;
 const STEP_MS = 236;
-const ANIMATION_MS = 132;
 
 const vectors: Record<Direction, Point> = {
   up: { x: 0, y: -1 },
@@ -191,11 +190,16 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const coinImageRef = useRef<HTMLImageElement | null>(null);
   const animationFrameRef = useRef(0);
+  const accumulatorRef = useRef(0);
+  const gameRef = useRef<GameState>(createGame());
+  const lastFrameAtRef = useRef(0);
+  const stepStartedAtRef = useRef(0);
+  const targetSnakeRef = useRef<Point[]>(gameRef.current.snake);
+  const previousSnakeRef = useRef<Point[]>(gameRef.current.snake);
   const [game, dispatch] = useReducer(reducer, undefined, () => createGame());
   const [coinReady, setCoinReady] = useState(false);
 
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
-  const previousSnakeRef = useRef<Point[]>(game.snake);
 
   useEffect(() => {
     const image = new Image();
@@ -206,10 +210,22 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const interval = window.setInterval(() => dispatch({ type: "tick" }), STEP_MS);
+    const snakeChanged = game.snake !== targetSnakeRef.current;
 
-    return () => window.clearInterval(interval);
-  }, []);
+    if (snakeChanged) {
+      previousSnakeRef.current = targetSnakeRef.current;
+      targetSnakeRef.current = game.snake;
+      stepStartedAtRef.current = performance.now();
+    }
+
+    if (game.status !== "running") {
+      previousSnakeRef.current = game.snake;
+      targetSnakeRef.current = game.snake;
+      accumulatorRef.current = 0;
+    }
+
+    gameRef.current = game;
+  }, [game]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -263,13 +279,13 @@ function App() {
     }
 
     const logicalSize = 720;
-    const previousSnake = previousSnakeRef.current;
-    const targetSnake = game.snake;
-    const startedAt = performance.now();
-
     const drawFrame = (now: number) => {
       const devicePixelRatio = window.devicePixelRatio || 1;
+      const lastFrameAt = lastFrameAtRef.current || now;
+      const delta = Math.min(80, now - lastFrameAt);
+      const liveGame = gameRef.current;
 
+      lastFrameAtRef.current = now;
       if (
         canvas.width !== logicalSize * devicePixelRatio ||
         canvas.height !== logicalSize * devicePixelRatio
@@ -279,26 +295,33 @@ function App() {
         context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
       }
 
-      const progress = game.status === "running" ? Math.min(1, (now - startedAt) / ANIMATION_MS) : 1;
+      if (liveGame.status === "running") {
+        accumulatorRef.current += delta;
+
+        if (accumulatorRef.current >= STEP_MS) {
+          accumulatorRef.current -= STEP_MS;
+          dispatch({ type: "tick" });
+        }
+      }
+
+      const progress =
+        liveGame.status === "running" ? Math.min(1, (now - stepStartedAtRef.current) / STEP_MS) : 1;
       const easedProgress = easeOutCubic(progress);
       const renderGame = {
-        ...game,
-        snake: interpolateSnake(previousSnake, targetSnake, easedProgress)
+        ...liveGame,
+        snake: interpolateSnake(previousSnakeRef.current, targetSnakeRef.current, easedProgress)
       };
 
       drawGame(context, logicalSize, renderGame, coinReady ? coinImageRef.current : null);
 
-      if (progress < 1) {
-        animationFrameRef.current = requestAnimationFrame(drawFrame);
-      }
+      animationFrameRef.current = requestAnimationFrame(drawFrame);
     };
 
     cancelAnimationFrame(animationFrameRef.current);
     animationFrameRef.current = requestAnimationFrame(drawFrame);
-    previousSnakeRef.current = targetSnake;
 
     return () => cancelAnimationFrame(animationFrameRef.current);
-  }, [coinReady, game]);
+  }, [coinReady]);
 
   const statusText = useMemo(() => {
     if (game.status === "won") {
