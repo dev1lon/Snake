@@ -347,7 +347,7 @@ function App() {
               <span />
             </div>
           )}
-          {game.status !== "running" && (
+          {game.status !== "running" && game.status !== "paused" && (
             <div className="overlay" aria-live="polite">
               <strong>{game.status === "idle" ? "Press play" : statusText}</strong>
               <span>
