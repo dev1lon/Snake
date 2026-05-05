@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: sneak-backend
+    env: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_ORIGIN
+        fromService:
+          type: web
+          name: sneak-frontend
+          property: host
+
+  - type: web
+    name: sneak-frontend
+    env: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: sneak-backend
+          property: host
