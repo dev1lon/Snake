@@ -120,6 +120,27 @@ function calculateScore(length: number, moves: number, won: boolean) {
   return cellsScore + efficiencyBonus + (won ? 3000 : 0);
 }
 
+function getDirectionFromKeyboard(event: KeyboardEvent): Direction | undefined {
+  const keyMap: Record<string, Direction | undefined> = {
+    ArrowUp: "up",
+    ArrowDown: "down",
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    w: "up",
+    s: "down",
+    a: "left",
+    d: "right"
+  };
+  const codeMap: Record<string, Direction | undefined> = {
+    KeyW: "up",
+    KeyS: "down",
+    KeyA: "left",
+    KeyD: "right"
+  };
+
+  return keyMap[event.key] ?? keyMap[event.key.toLowerCase()] ?? codeMap[event.code];
+}
+
 function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case "start":
@@ -257,17 +278,15 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const keyMap: Record<string, Direction | undefined> = {
-        ArrowUp: "up",
-        ArrowDown: "down",
-        ArrowLeft: "left",
-        ArrowRight: "right",
-        w: "up",
-        s: "down",
-        a: "left",
-        d: "right"
-      };
-      const direction = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+
+      if (isTyping) {
+        return;
+      }
+
+      const direction = getDirectionFromKeyboard(event);
 
       if (direction) {
         event.preventDefault();
@@ -290,29 +309,27 @@ function App() {
       }
     };
     const handleKeyUp = (event: KeyboardEvent) => {
-      const keyMap: Record<string, Direction | undefined> = {
-        ArrowUp: "up",
-        ArrowDown: "down",
-        ArrowLeft: "left",
-        ArrowRight: "right",
-        w: "up",
-        s: "down",
-        a: "left",
-        d: "right"
-      };
-      const direction = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+
+      if (isTyping) {
+        return;
+      }
+
+      const direction = getDirectionFromKeyboard(event);
 
       if (direction) {
         setActiveDirection((current) => (current === direction ? null : current));
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    window.addEventListener("keyup", handleKeyUp, { capture: true });
 
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+      window.removeEventListener("keyup", handleKeyUp, { capture: true });
     };
   }, [game.status]);
 
@@ -398,9 +415,18 @@ function App() {
     dispatch({ type: "move", direction });
   };
 
+  const releaseFocus = () => {
+    requestAnimationFrame(() => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    });
+  };
+
   const pressDirection = (direction: Direction) => {
     setActiveDirection(direction);
     move(direction);
+    releaseFocus();
   };
 
   const releaseDirection = (direction: Direction) => {
@@ -455,7 +481,10 @@ function App() {
                 type="button"
                 title="Restart"
                 aria-label="Restart"
-                onPointerDown={() => dispatch({ type: "reset" })}
+                onPointerDown={() => {
+                  dispatch({ type: "reset" });
+                  releaseFocus();
+                }}
               >
                 <RotateCcw />
               </button>
@@ -493,7 +522,10 @@ function App() {
               aria-label={
                 game.status === "running" ? "Pause" : game.status === "paused" ? "Resume" : "Start"
               }
-              onPointerDown={() => dispatch({ type: game.status === "running" ? "pause" : "start" })}
+              onPointerDown={() => {
+                dispatch({ type: game.status === "running" ? "pause" : "start" });
+                releaseFocus();
+              }}
             >
               {game.status === "running" ? <Pause /> : <Play />}
             </button>

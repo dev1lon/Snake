@@ -17,8 +17,8 @@
   --amber: #f4c542;
   --red: #f06258;
   --controls-height: 252px;
-  --mobile-controls-height: 238px;
-  --dpad-cell: 64px;
+  --mobile-controls-height: 248px;
+  --dpad-cell: 50px;
   --dpad-gap: 8px;
 }
 
@@ -298,6 +298,7 @@ canvas {
 .controls-area {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
+  align-items: center;
   min-height: 0;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   padding: 8px clamp(14px, 3vw, 32px) 12px;
@@ -338,6 +339,7 @@ canvas {
   grid-template-columns: max-content;
   align-items: center;
   justify-content: center;
+  align-self: center;
   min-height: 0;
 }
 
@@ -458,7 +460,7 @@ canvas {
   }
 
   .dpad {
-    --dpad-cell: clamp(48px, 15vw, 58px);
+    --dpad-cell: clamp(44px, 13vw, 50px);
     --dpad-gap: 7px;
   }
 }
