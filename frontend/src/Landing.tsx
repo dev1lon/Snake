@@ -10,16 +10,16 @@ const API_URL = import.meta.env.VITE_API_URL
 
 export default function Landing() {
   const navigate = useNavigate();
-  const [players, setPlayers] = useState<number | null>(null);
+  const [players, setPlayers] = useState<number>(0);
 
   useEffect(() => {
     fetch(`${API_URL}/api/stats`)
       .then((r) => r.json())
-      .then((d: { players: number }) => setPlayers(d.players))
+      .then((d: { players: number }) => setPlayers(d.players ?? 0))
       .catch(() => {});
   }, []);
 
-  const playerLabel = players === null ? "—" : players.toLocaleString("en-US");
+  const playerLabel = players.toLocaleString("en-US");
 
   return (
     <div className="lnd-root">
@@ -46,11 +46,6 @@ export default function Landing() {
             The classic game, engineered for the Base network. Eat protocol tokens, grow your
             length, top the global index.
           </p>
-
-          <div className="lnd-players-badge">
-            <span className="lnd-players-value">{playerLabel}</span>
-            <span className="lnd-players-label">players</span>
-          </div>
 
           {/* 3D Scene */}
           <div className="lnd-scene">
@@ -108,6 +103,12 @@ export default function Landing() {
               <div className="lnd-tile-label">POOL</div>
               <div className="lnd-tile-sub">1.2M $ETH</div>
             </div>
+          </div>
+
+          {/* Players counter — below tiles */}
+          <div className="lnd-players-badge">
+            <span className="lnd-players-value">{playerLabel}</span>
+            <span className="lnd-players-label">PLAYERS</span>
           </div>
         </main>
 

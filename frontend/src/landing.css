@@ -138,17 +138,22 @@
   padding: 0 4px;
 }
 
-/* ── Players counter ────────────────────────────────────────── */
+/* ── Players counter — below scene, vertical ────────────────── */
 .lnd-players-badge {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 14px 28px;
+  background: rgba(0, 229, 255, 0.04);
+  border: 1px solid rgba(0, 229, 255, 0.12);
+  border-radius: 12px;
 }
 
 .lnd-players-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1.35rem;
+  font-size: 1.6rem;
   font-weight: 700;
   color: #00E5FF;
   line-height: 1;
@@ -156,10 +161,10 @@
 
 .lnd-players-label {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   color: #8A95A5;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
 }
 
 /* ── 3D Scene ───────────────────────────────────────────────── */
