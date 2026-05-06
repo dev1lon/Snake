@@ -368,6 +368,11 @@ function App() {
 
   useEffect(() => {
     const loadStreak = async () => {
+      if (!isConnected || !address) {
+        setStreak(null);
+        return;
+      }
+
       try {
         const response = await fetch(`${API_URL}/api/streak`, {
           credentials: "include"

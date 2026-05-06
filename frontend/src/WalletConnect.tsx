@@ -107,6 +107,10 @@ export function WalletConnect() {
 
   useEffect(() => {
     const restoreSession = async () => {
+      if (!isConnected && !address) {
+        return;
+      }
+
       try {
         const response = await fetch(`${API_URL}/api/auth/me`, {
           credentials: "include"
@@ -130,7 +134,7 @@ export function WalletConnect() {
     };
 
     void restoreSession();
-  }, []);
+  }, [address, isConnected]);
 
   const connectSmartWallet = async (showError = true) => {
     if (!baseAccountConnector) {
