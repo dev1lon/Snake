@@ -687,193 +687,157 @@ function Game() {
   };
 
   return (
-    <main className="app">
-      <section className="game-area" aria-label="Snake game board">
-        <div className="top-shell">
-          <div className="brand-row">
-            <div>
-              <p className="eyebrow">Snake</p>
-              <h1>{statusText}</h1>
-            </div>
-            <WalletConnect />
-          </div>
+    <div className="gs-root">
+      <div className="gs-grid-bg" />
 
-          <div className="top-bar">
-            <div className="stats" aria-label="Game stats">
-              <span>{game.snake.length}/{TOTAL_CELLS}</span>
-              <span>{filledPercent}%</span>
-            </div>
-            <div className="top-actions" aria-label="Snake actions">
-              <button
-                className="checkin-button"
-                type="button"
-                onClick={checkIn}
-                disabled={!canCheckIn}
-                title={address ? "Check in" : "Connect wallet first"}
-                aria-label="Check in"
-              >
-                <span>Check-in</span>
-              </button>
-              <div className="streak-panel" aria-label="Streak status">
-                <span>Streak</span>
-                <strong>{streakUi.count}</strong>
-                <small>{streakUi.timer}</small>
-              </div>
-              {streak?.isAdmin && (
-                <button
-                  className="admin-notify-button"
-                  type="button"
-                  onClick={sendAdminNotification}
-                  title="Send random Base App notification"
-                  aria-label="Send random Base App notification"
-                >
-                  <Bell />
-                </button>
-              )}
-            </div>
+      {/* Header */}
+      <header className="gs-header">
+        <div>
+          <div className="gs-brand-label">
+            <img src="/coin.png" alt="" className="gs-brand-icon" />
+            Base Snake
           </div>
+          <h1 className="gs-title">{statusText}</h1>
         </div>
+        <WalletConnect />
+      </header>
 
-        <div className="canvas-shell">
+      {/* Stats bar */}
+      <div className="gs-stats-bar">
+        <div className="gs-stats-left">
+          <div className="gs-pill">{game.snake.length}/{TOTAL_CELLS}</div>
+          <div className="gs-pill">{filledPercent}%</div>
+        </div>
+        <div className="gs-stats-right">
+          <button
+            className="gs-checkin-btn"
+            type="button"
+            onClick={checkIn}
+            disabled={!canCheckIn}
+            title={address ? "Check in" : "Connect wallet first"}
+          >
+            Check-in
+          </button>
+          <div className="gs-streak">
+            <span>Streak</span>
+            <strong>{streakUi.count}</strong>
+            <span className="gs-streak-timer">{streakUi.timer}</span>
+          </div>
+          {streak?.isAdmin && (
+            <button className="gs-bell-btn" type="button" onClick={sendAdminNotification} title="Send notification">
+              <Bell size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Game board */}
+      <main className="gs-board-area">
+        <div className="gs-board-panel">
           <canvas ref={canvasRef} aria-label="Snake board" />
           {game.status === "paused" && (
-            <div className="board-pause-mark" aria-hidden="true">
-              <span />
-              <span />
+            <div className="gs-pause-marks" aria-hidden="true">
+              <span /><span />
             </div>
           )}
           {game.status !== "running" && game.status !== "paused" && (
-            <div className="overlay" aria-live="polite">
+            <div className="gs-overlay" aria-live="polite">
               <strong>{game.status === "idle" ? "Press play" : statusText}</strong>
-              <span>
+              <p>
                 {game.status === "won"
                   ? "The snake filled every cell."
                   : game.status === "lost"
                     ? "Restart and try to fill the full board."
                     : "Fill the board to finish the game."}
-              </span>
+              </p>
               {gameEnded && (
-                <button
-                  className="save-record-button"
-                  type="button"
-                  disabled={isSavingRecord}
-                  onClick={saveRecord}
-                >
+                <button className="gs-save-btn" type="button" disabled={isSavingRecord} onClick={saveRecord}>
                   <Save />
                   <span>{isSavingRecord ? "Saving..." : "Save record"}</span>
                 </button>
               )}
               {(recordStatus || streakStatus) && (
-                <small className="action-status">{recordStatus ?? streakStatus}</small>
+                <small>{recordStatus ?? streakStatus}</small>
               )}
             </div>
           )}
         </div>
-      </section>
+      </main>
 
-      <section className="controls-area" aria-label="Snake controls">
-        <div className="lower-grid">
-          <div className="dpad" aria-label="Direction buttons">
-            {game.status === "paused" ? (
-              <button
-                className="dpad-button restart"
-                type="button"
-                title="Restart"
-                aria-label="Restart"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  dispatch({ type: "reset" });
-                  releaseFocus();
-                }}
-              >
-                <RotateCcw />
-              </button>
-            ) : (
-              <span className="dpad-spacer restart" aria-hidden="true" />
-            )}
+      {/* D-pad */}
+      <div className="gs-controls">
+        <div className="gs-dpad">
+          {/* Row 1 */}
+          <span />
+          <button
+            className="gs-dpad-btn"
+            type="button"
+            aria-label="Up"
+            onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); pressDirection("up"); }}
+            onPointerLeave={() => releaseDirection("up")}
+            onPointerUp={() => releaseDirection("up")}
+          >
+            <ArrowUp />
+          </button>
+          <span />
+
+          {/* Row 2 */}
+          <button
+            className="gs-dpad-btn"
+            type="button"
+            aria-label="Left"
+            onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); pressDirection("left"); }}
+            onPointerLeave={() => releaseDirection("left")}
+            onPointerUp={() => releaseDirection("left")}
+          >
+            <ArrowLeft />
+          </button>
+          <button
+            className="gs-dpad-center"
+            type="button"
+            aria-label={game.status === "running" ? "Pause" : "Start"}
+            onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); dispatch({ type: game.status === "running" ? "pause" : "start" }); releaseFocus(); }}
+          >
+            {game.status === "running" ? <Pause /> : <Play />}
+          </button>
+          <button
+            className="gs-dpad-btn"
+            type="button"
+            aria-label="Right"
+            onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); pressDirection("right"); }}
+            onPointerLeave={() => releaseDirection("right")}
+            onPointerUp={() => releaseDirection("right")}
+          >
+            <ArrowRight />
+          </button>
+
+          {/* Row 3 */}
+          {game.status === "paused" ? (
             <button
-              className={`dpad-button up ${activeDirection === "up" ? "is-active" : ""}`}
+              className="gs-dpad-restart"
               type="button"
-              title="Up"
-              aria-label="Up"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                pressDirection("up");
-              }}
-              onPointerLeave={() => releaseDirection("up")}
-              onPointerUp={() => releaseDirection("up")}
+              aria-label="Restart"
+              onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); dispatch({ type: "reset" }); releaseFocus(); }}
             >
-              <ArrowUp />
+              <RotateCcw />
             </button>
-            <button
-              className={`dpad-button left ${activeDirection === "left" ? "is-active" : ""}`}
-              type="button"
-              title="Left"
-              aria-label="Left"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                pressDirection("left");
-              }}
-              onPointerLeave={() => releaseDirection("left")}
-              onPointerUp={() => releaseDirection("left")}
-            >
-              <ArrowLeft />
-            </button>
-            <button
-              className="dpad-center"
-              type="button"
-              title={
-                game.status === "running" ? "Pause" : game.status === "paused" ? "Resume" : "Start"
-              }
-              aria-label={
-                game.status === "running" ? "Pause" : game.status === "paused" ? "Resume" : "Start"
-              }
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                dispatch({ type: game.status === "running" ? "pause" : "start" });
-                releaseFocus();
-              }}
-            >
-              {game.status === "running" ? <Pause /> : <Play />}
-            </button>
-            <button
-              className={`dpad-button right ${activeDirection === "right" ? "is-active" : ""}`}
-              type="button"
-              title="Right"
-              aria-label="Right"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                pressDirection("right");
-              }}
-              onPointerLeave={() => releaseDirection("right")}
-              onPointerUp={() => releaseDirection("right")}
-            >
-              <ArrowRight />
-            </button>
-            <button
-              className={`dpad-button down ${activeDirection === "down" ? "is-active" : ""}`}
-              type="button"
-              title="Down"
-              aria-label="Down"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                pressDirection("down");
-              }}
-              onPointerLeave={() => releaseDirection("down")}
-              onPointerUp={() => releaseDirection("down")}
-            >
-              <ArrowDown />
-            </button>
-          </div>
+          ) : (
+            <span />
+          )}
+          <button
+            className="gs-dpad-btn"
+            type="button"
+            aria-label="Down"
+            onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); pressDirection("down"); }}
+            onPointerLeave={() => releaseDirection("down")}
+            onPointerUp={() => releaseDirection("down")}
+          >
+            <ArrowDown />
+          </button>
+          <span />
         </div>
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
 
@@ -935,8 +899,20 @@ function drawGame(
   const cell = size / BOARD_CELLS;
 
   context.clearRect(0, 0, size, size);
-  context.fillStyle = "#07162b";
-  context.fillRect(0, 0, size, size);
+
+  // Subtle grid
+  context.strokeStyle = "rgba(255,255,255,0.03)";
+  context.lineWidth = 0.5;
+  for (let i = 1; i < BOARD_CELLS; i++) {
+    context.beginPath();
+    context.moveTo(i * cell, 0);
+    context.lineTo(i * cell, size);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(0, i * cell);
+    context.lineTo(size, i * cell);
+    context.stroke();
+  }
 
   if (game.food) {
     drawCoin(context, game.food, cell, coinImage);
