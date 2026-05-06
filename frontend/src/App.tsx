@@ -336,6 +336,7 @@ function App() {
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
   const gameEnded = game.status === "lost" || game.status === "won";
   const streakUi = getStreakUi(streak, nowMs);
+  const canCheckIn = Boolean(streak?.canCheckIn && address && connector && !isCheckingIn);
 
   const queueDirection = (direction: Direction) => {
     const liveGame = gameRef.current;
@@ -683,41 +684,50 @@ function App() {
 
   return (
     <main className="app">
-      <WalletConnect />
       <section className="game-area" aria-label="Snake game board">
-        <div className="top-bar">
-          <div>
-            <p className="eyebrow">Snake</p>
-            <h1>{statusText}</h1>
+        <div className="top-shell">
+          <div className="brand-row">
+            <div>
+              <p className="eyebrow">Snake</p>
+              <h1>{statusText}</h1>
+            </div>
+            <WalletConnect />
           </div>
-          <div className="stats" aria-label="Game stats">
-            <span>{game.snake.length}/{TOTAL_CELLS}</span>
-            <span>{filledPercent}%</span>
-          </div>
-          <div className="top-actions" aria-label="Snake actions">
-            <button
-              className="checkin-button"
-              type="button"
-              onClick={checkIn}
-              disabled={isCheckingIn}
-              title="Check in"
-              aria-label="Check in"
-            >
-              <Check />
-              <span>{streakUi.count}</span>
-              <small>{streakUi.timer}</small>
-            </button>
-            {streak?.isAdmin && (
+
+          <div className="top-bar">
+            <div className="stats" aria-label="Game stats">
+              <span>{game.snake.length}/{TOTAL_CELLS}</span>
+              <span>{filledPercent}%</span>
+            </div>
+            <div className="top-actions" aria-label="Snake actions">
               <button
-                className="admin-notify-button"
+                className="checkin-button"
                 type="button"
-                onClick={sendAdminNotification}
-                title="Send random Base App notification"
-                aria-label="Send random Base App notification"
+                onClick={checkIn}
+                disabled={!canCheckIn}
+                title={address ? "Check in" : "Connect wallet first"}
+                aria-label="Check in"
               >
-                <Bell />
+                <Check />
+                <span>Check-in</span>
               </button>
-            )}
+              <div className="streak-panel" aria-label="Streak status">
+                <span>Streak</span>
+                <strong>{streakUi.count}</strong>
+                <small>{streakUi.timer}</small>
+              </div>
+              {streak?.isAdmin && (
+                <button
+                  className="admin-notify-button"
+                  type="button"
+                  onClick={sendAdminNotification}
+                  title="Send random Base App notification"
+                  aria-label="Send random Base App notification"
+                >
+                  <Bell />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

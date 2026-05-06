@@ -51,10 +51,8 @@ button {
 }
 
 .wallet-widget {
-  position: fixed;
-  right: 14px;
-  top: 12px;
-  z-index: 20;
+  position: relative;
+  z-index: 10;
   display: grid;
   gap: 8px;
   width: min(260px, calc(100vw - 28px));
@@ -194,12 +192,25 @@ button {
   justify-items: center;
 }
 
-.top-bar {
+.top-shell {
+  display: grid;
+  gap: 10px;
+  width: min(100%, calc(100dvh - var(--controls-height) - 84px));
+}
+
+.brand-row {
   display: flex;
-  align-items: end;
+  align-items: start;
   justify-content: space-between;
   gap: 14px;
-  width: min(100%, calc(100dvh - var(--controls-height) - 84px));
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
 }
 
 .eyebrow,
@@ -251,11 +262,13 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .checkin-button,
 .admin-notify-button,
-.save-record-button {
+.save-record-button,
+.streak-panel {
   display: inline-grid;
   align-items: center;
   border: 1px solid var(--line-strong);
@@ -272,17 +285,38 @@ button {
 }
 
 .checkin-button {
-  grid-template-columns: 18px auto auto;
+  grid-template-columns: 18px auto;
   gap: 6px;
   min-height: 38px;
   padding: 0 10px;
   font-weight: 900;
 }
 
-.checkin-button small {
+.streak-panel {
+  grid-template-columns: auto auto auto;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.streak-panel span {
   color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 850;
+  text-transform: uppercase;
+}
+
+.streak-panel strong {
+  color: #f7fbff;
+  font-size: 0.98rem;
+  font-weight: 950;
+}
+
+.streak-panel small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  white-space: nowrap;
 }
 
 .checkin-button svg,
@@ -305,7 +339,7 @@ button {
 }
 
 .checkin-button:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.62;
 }
 
@@ -559,27 +593,58 @@ canvas {
   }
 
   .game-area {
-    padding-top: 56px;
+    padding-top: 12px;
   }
 
+  .brand-row,
   .top-bar {
     align-items: start;
   }
 
+  .brand-row {
+    gap: 10px;
+  }
+
+  .brand-row .wallet-widget {
+    width: min(210px, 58vw);
+  }
+
+  .wallet-trigger {
+    height: 36px;
+  }
+
+  .wallet-trigger span {
+    font-size: 0.78rem;
+  }
+
   .stats span {
-    min-width: 58px;
-    padding: 7px 8px;
-    font-size: 0.82rem;
+    min-width: 54px;
+    padding: 7px 7px;
+    font-size: 0.78rem;
   }
 
   .top-actions {
-    width: 100%;
-    justify-content: flex-start;
+    flex: 1;
+    justify-content: flex-end;
   }
 
   .checkin-button {
     min-height: 34px;
     padding: 0 8px;
+    font-size: 0.78rem;
+  }
+
+  .streak-panel {
+    min-height: 34px;
+    padding: 0 8px;
+  }
+
+  .streak-panel span {
+    display: none;
+  }
+
+  .streak-panel small {
+    font-size: 0.68rem;
   }
 
   canvas {
@@ -587,7 +652,7 @@ canvas {
   }
 
   .canvas-shell,
-  .top-bar {
+  .top-shell {
     width: min(100%, calc(100dvh - var(--mobile-controls-height) - 76px));
   }
 
@@ -602,13 +667,46 @@ canvas {
 }
 
 @media (max-width: 420px) {
-  .top-bar {
+  .top-bar,
+  .brand-row {
     display: grid;
     gap: 8px;
   }
 
+  .brand-row {
+    grid-template-columns: minmax(0, 1fr) minmax(148px, 52vw);
+  }
+
+  .brand-row .wallet-widget {
+    justify-self: end;
+    width: min(196px, 52vw);
+  }
+
+  .top-bar {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
   .stats {
+    flex-wrap: nowrap;
     justify-content: start;
+  }
+
+  .top-actions {
+    justify-content: end;
+  }
+
+  .checkin-button span {
+    display: none;
+  }
+
+  .checkin-button {
+    grid-template-columns: 18px;
+    width: 36px;
+    place-content: center;
+  }
+
+  .streak-panel {
+    gap: 5px;
   }
 
   .overlay {
