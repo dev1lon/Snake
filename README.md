@@ -62,3 +62,23 @@ If using `render.yaml`, Render uses `frontend` and `backend` as separate service
 ## MVP
 
 The player wins when the snake fills the whole board. A local backend stores leaderboard results for the current server process. Base Account, wallet login, and onchain achievements can be added in the next stage.
+
+## Onchain + Base App
+
+Deploy `contracts/SnakeRecords.sol` to Base mainnet, then set:
+
+```bash
+VITE_RECORD_CONTRACT_ADDRESS=0x...
+VITE_PAYMASTER_URL=https://...
+```
+
+For Base App notifications and admin broadcast:
+
+```bash
+BASE_APP_URL=https://snake-frontend-cx28.onrender.com
+BASE_NOTIFICATIONS_API_KEY=...
+ADMIN_NOTIFICATION_KEY=...
+VITE_ADMIN_NOTIFICATION_KEY=...
+```
+
+Gasless record/check-in writes require the deployed contract to be allowlisted in your Base/CDP paymaster policy.

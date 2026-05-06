@@ -49,7 +49,7 @@ button {
 
 .wallet-widget {
   position: fixed;
-  left: 14px;
+  right: 14px;
   top: 12px;
   z-index: 20;
   display: grid;
@@ -229,6 +229,63 @@ button {
   text-align: center;
 }
 
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkin-button,
+.admin-notify-button,
+.save-record-button {
+  display: inline-grid;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(16, 22, 32, 0.82);
+  color: #f7fbff;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.checkin-button {
+  grid-template-columns: 18px auto auto;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 10px;
+  font-weight: 800;
+}
+
+.checkin-button small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.checkin-button svg,
+.admin-notify-button svg,
+.save-record-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.admin-notify-button {
+  width: 38px;
+  height: 38px;
+  place-items: center;
+}
+
+.checkin-button:hover,
+.admin-notify-button:hover,
+.save-record-button:hover:not(:disabled) {
+  border-color: rgba(55, 194, 255, 0.82);
+}
+
+.checkin-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
 .canvas-shell {
   position: relative;
   display: grid;
@@ -298,6 +355,29 @@ canvas {
 .overlay span {
   color: var(--text-muted);
   font-size: 0.86rem;
+}
+
+.save-record-button {
+  grid-template-columns: 18px auto;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  margin-top: 6px;
+  background: linear-gradient(180deg, rgba(0, 82, 255, 0.92), rgba(16, 93, 255, 0.54));
+  font-weight: 800;
+}
+
+.save-record-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.action-status {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .controls-area {
@@ -439,7 +519,7 @@ canvas {
   }
 
   .game-area {
-    padding-top: 14px;
+    padding-top: 56px;
   }
 
   .top-bar {
@@ -450,6 +530,16 @@ canvas {
     min-width: 58px;
     padding: 7px 8px;
     font-size: 0.82rem;
+  }
+
+  .top-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .checkin-button {
+    min-height: 34px;
+    padding: 0 8px;
   }
 
   canvas {

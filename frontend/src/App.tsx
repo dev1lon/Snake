@@ -3,12 +3,19 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Bell,
+  Check,
   Pause,
   Play,
-  RotateCcw
+  RotateCcw,
+  Save
 } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { encodeFunctionData, type Address } from "viem";
+import { useAccount, useConnect, useSendCalls, useSwitchChain } from "wagmi";
+import { base } from "wagmi/chains";
 import { WalletConnect } from "./WalletConnect";
+import { snakeRecordsAbi } from "./contracts";
 
 type Point = {
   x: number;
@@ -33,13 +40,27 @@ type Action =
   | { type: "pause" }
   | { type: "reset" }
   | { type: "move"; direction: Direction }
+  | { type: "turnAndTick"; direction: Direction }
   | { type: "ensureFood" }
   | { type: "tick" };
+
+type StreakState = {
+  authenticated: boolean;
+  canCheckIn: boolean;
+  checkedInToday: boolean;
+  expiresAt: string | null;
+  nextCheckInAt: string | null;
+  streak: number;
+};
 
 const BOARD_CELLS = 16;
 const TOTAL_CELLS = BOARD_CELLS * BOARD_CELLS;
 const START_LENGTH = 1;
 const STEP_MS = 236;
+const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
+const RECORD_CONTRACT_ADDRESS = getAddressEnv(import.meta.env.VITE_RECORD_CONTRACT_ADDRESS);
+const PAYMASTER_URL = import.meta.env.VITE_PAYMASTER_URL;
+const ADMIN_NOTIFICATION_KEY = import.meta.env.VITE_ADMIN_NOTIFICATION_KEY;
 
 const vectors: Record<Direction, Point> = {
   up: { x: 0, y: -1 },
@@ -141,6 +162,77 @@ function getDirectionFromKeyboard(event: KeyboardEvent): Direction | undefined {
   return keyMap[event.key] ?? keyMap[event.key.toLowerCase()] ?? codeMap[event.code];
 }
 
+function normalizeApiUrl(value: string | undefined) {
+  if (!value) {
+    return "http://localhost:4000";
+  }
+
+  return value.startsWith("http") ? value : `https://${value}`;
+}
+
+function getAddressEnv(value: string | undefined): Address | null {
+  return value && /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as Address) : null;
+}
+
+function ensureFoodOnState(state: GameState): GameState {
+  if (state.status === "won" || state.snake.length >= TOTAL_CELLS || isFoodValid(state.food, state.snake)) {
+    return state;
+  }
+
+  return { ...state, food: getFood(state.snake) };
+}
+
+function advanceGame(state: GameState, forcedDirection?: Direction): GameState {
+  if (state.status !== "running") {
+    return state;
+  }
+
+  const cleanState = ensureFoodOnState(state);
+  const requestedDirection = forcedDirection ?? cleanState.queuedDirection;
+  const direction =
+    cleanState.snake.length > 1 && isOpposite(cleanState.direction, requestedDirection)
+      ? cleanState.direction
+      : requestedDirection;
+  const currentFood = isFoodValid(cleanState.food, cleanState.snake)
+    ? cleanState.food
+    : getFood(cleanState.snake);
+  const head = cleanState.snake[0];
+  const vector = vectors[direction];
+  const nextHead = { x: head.x + vector.x, y: head.y + vector.y };
+  const outOfBounds =
+    nextHead.x < 0 || nextHead.y < 0 || nextHead.x >= BOARD_CELLS || nextHead.y >= BOARD_CELLS;
+  const eating = currentFood ? samePoint(nextHead, currentFood) : false;
+  const collisionBody = eating ? cleanState.snake : cleanState.snake.slice(0, -1);
+  const selfHit = collisionBody.some((part) => samePoint(part, nextHead));
+
+  if (outOfBounds || selfHit) {
+    return {
+      ...cleanState,
+      direction,
+      queuedDirection: direction,
+      status: "lost",
+      score: calculateScore(cleanState.snake.length, cleanState.moves, false)
+    };
+  }
+
+  const nextSnake = eating
+    ? [nextHead, ...cleanState.snake]
+    : [nextHead, ...cleanState.snake.slice(0, -1)];
+  const won = nextSnake.length === TOTAL_CELLS;
+  const moves = cleanState.moves + 1;
+
+  return {
+    ...cleanState,
+    snake: nextSnake,
+    food: won ? null : eating || !currentFood ? getFood(nextSnake) : currentFood,
+    direction,
+    queuedDirection: direction,
+    moves,
+    status: won ? "won" : "running",
+    score: calculateScore(nextSnake.length, moves, won)
+  };
+}
+
 function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case "start":
@@ -172,56 +264,21 @@ function reducer(state: GameState, action: Action): GameState {
       return { ...state, queuedDirection: action.direction };
 
     case "ensureFood":
-      if (state.status === "won" || state.snake.length >= TOTAL_CELLS || isFoodValid(state.food, state.snake)) {
-        return state;
-      }
+      return ensureFoodOnState(state);
 
-      return { ...state, food: getFood(state.snake) };
-
-    case "tick": {
+    case "turnAndTick":
       if (state.status !== "running") {
         return state;
       }
 
-      const currentFood = isFoodValid(state.food, state.snake) ? state.food : getFood(state.snake);
-      const direction = state.queuedDirection;
-      const head = state.snake[0];
-      const vector = vectors[direction];
-      const nextHead = { x: head.x + vector.x, y: head.y + vector.y };
-      const outOfBounds =
-        nextHead.x < 0 ||
-        nextHead.y < 0 ||
-        nextHead.x >= BOARD_CELLS ||
-        nextHead.y >= BOARD_CELLS;
-      const eating = currentFood ? samePoint(nextHead, currentFood) : false;
-      const collisionBody = eating ? state.snake : state.snake.slice(0, -1);
-      const selfHit = collisionBody.some((part) => samePoint(part, nextHead));
-
-      if (outOfBounds || selfHit) {
-        return {
-          ...state,
-          direction,
-          status: "lost",
-          score: calculateScore(state.snake.length, state.moves, false)
-        };
+      if (state.snake.length > 1 && isOpposite(state.direction, action.direction)) {
+        return state;
       }
 
-      const nextSnake = eating
-        ? [nextHead, ...state.snake]
-        : [nextHead, ...state.snake.slice(0, -1)];
-      const won = nextSnake.length === TOTAL_CELLS;
-      const moves = state.moves + 1;
+      return advanceGame({ ...state, queuedDirection: action.direction }, action.direction);
 
-      return {
-        ...state,
-        snake: nextSnake,
-        food: won ? null : eating || !currentFood ? getFood(nextSnake) : currentFood,
-        direction,
-        moves,
-        status: won ? "won" : "running",
-        score: calculateScore(nextSnake.length, moves, won)
-      };
-    }
+    case "tick":
+      return advanceGame(state);
 
     default:
       return state;
@@ -241,20 +298,37 @@ function App() {
   const [game, dispatch] = useReducer(reducer, undefined, () => createGame());
   const [activeDirection, setActiveDirection] = useState<Direction | null>(null);
   const [coinReady, setCoinReady] = useState(false);
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [recordStatus, setRecordStatus] = useState<string | null>(null);
+  const [streak, setStreak] = useState<StreakState | null>(null);
+  const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [streakStatus, setStreakStatus] = useState<string | null>(null);
+  const { address, connector, isConnected } = useAccount();
+  const { connectAsync, connectors } = useConnect();
+  const { sendCallsAsync, isPending: isSavingRecord } = useSendCalls();
+  const { switchChainAsync } = useSwitchChain();
 
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
+  const gameEnded = game.status === "lost" || game.status === "won";
+  const baseAccountConnector = useMemo(
+    () => connectors.find((availableConnector) => availableConnector.id === "baseAccount"),
+    [connectors]
+  );
+  const streakExpiresMs = streak?.expiresAt ? new Date(streak.expiresAt).getTime() : 0;
+  const streakTimeLeft = Math.max(0, streakExpiresMs - nowMs);
 
   const queueDirection = (direction: Direction) => {
     const liveGame = gameRef.current;
     const canTurn = liveGame.snake.length <= 1 || !isOpposite(liveGame.direction, direction);
     const isNewDirection = liveGame.queuedDirection !== direction;
 
-    dispatch({ type: "move", direction });
-
     if (liveGame.status === "running" && canTurn && isNewDirection) {
       accumulatorRef.current = 0;
-      dispatch({ type: "tick" });
+      dispatch({ type: "turnAndTick", direction });
+      return;
     }
+
+    dispatch({ type: "move", direction });
   };
 
   useEffect(() => {
@@ -264,6 +338,33 @@ function App() {
     image.onerror = () => setCoinReady(false);
     coinImageRef.current = image;
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const loadStreak = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/streak`, {
+          credentials: "include"
+        });
+
+        if (!response.ok) {
+          setStreak(null);
+          return;
+        }
+
+        setStreak((await response.json()) as StreakState);
+      } catch {
+        setStreak(null);
+      }
+    };
+
+    void loadStreak();
+  }, [address, isConnected]);
 
   useEffect(() => {
     if (game.status !== "won" && game.snake.length < TOTAL_CELLS && !isFoodValid(game.food, game.snake)) {
@@ -388,8 +489,9 @@ function App() {
       const progress =
         liveGame.status === "running" ? Math.min(1, (now - stepStartedAtRef.current) / STEP_MS) : 1;
       const easedProgress = easeOutCubic(progress);
+      const drawableGame = ensureFoodOnState(liveGame);
       const renderGame = {
-        ...liveGame,
+        ...drawableGame,
         snake: interpolateSnake(previousSnakeRef.current, targetSnakeRef.current, easedProgress)
       };
 
@@ -442,6 +544,151 @@ function App() {
     setActiveDirection((current) => (current === direction ? null : current));
   };
 
+  const checkIn = async () => {
+    setStreakStatus(null);
+    setIsCheckingIn(true);
+
+    try {
+      if (RECORD_CONTRACT_ADDRESS && (!streak || streak.canCheckIn)) {
+        let activeConnector = connector;
+        let activeAddress = address;
+
+        if (!activeAddress && baseAccountConnector) {
+          const connected = await connectAsync({ connector: baseAccountConnector });
+          activeConnector = baseAccountConnector;
+          activeAddress = connected.accounts[0];
+        }
+
+        if (!activeAddress) {
+          throw new Error("Connect wallet first");
+        }
+
+        await switchChainAsync({ chainId: base.id });
+
+        const data = encodeFunctionData({
+          abi: snakeRecordsAbi,
+          functionName: "checkIn"
+        });
+        const capabilities = PAYMASTER_URL
+          ? {
+              paymasterService: {
+                url: PAYMASTER_URL
+              }
+            }
+          : undefined;
+
+        await sendCallsAsync({
+          calls: [
+            {
+              data,
+              to: RECORD_CONTRACT_ADDRESS
+            }
+          ],
+          capabilities,
+          chainId: base.id,
+          connector: activeConnector,
+          experimental_fallback: true
+        });
+      }
+
+      const response = await fetch(`${API_URL}/api/streak/check-in`, {
+        method: "POST",
+        credentials: "include"
+      });
+      const data = (await response.json().catch(() => null)) as (StreakState & { error?: string }) | null;
+
+      if (!response.ok || !data) {
+        throw new Error(data?.error ?? "Check-in failed");
+      }
+
+      setStreak(data);
+      setStreakStatus(data.checkedInToday ? "Checked in" : "Already active");
+    } catch (caught) {
+      setStreakStatus(caught instanceof Error ? caught.message : "Check-in failed");
+    } finally {
+      setIsCheckingIn(false);
+    }
+  };
+
+  const sendAdminNotification = async () => {
+    setStreakStatus(null);
+
+    try {
+      const response = await fetch(`${API_URL}/api/admin/notify-random`, {
+        method: "POST",
+        headers: ADMIN_NOTIFICATION_KEY ? { "x-admin-key": ADMIN_NOTIFICATION_KEY } : undefined
+      });
+      const data = (await response.json().catch(() => null)) as { error?: string; sentCount?: number } | null;
+
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Notification failed");
+      }
+
+      setStreakStatus(`Sent ${data?.sentCount ?? 0}`);
+    } catch (caught) {
+      setStreakStatus(caught instanceof Error ? caught.message : "Notification failed");
+    }
+  };
+
+  const saveRecord = async () => {
+    if (!gameEnded) {
+      return;
+    }
+
+    if (!RECORD_CONTRACT_ADDRESS) {
+      setRecordStatus("Set VITE_RECORD_CONTRACT_ADDRESS after deploy");
+      return;
+    }
+
+    setRecordStatus(null);
+
+    try {
+      let activeConnector = connector;
+      let activeAddress = address;
+
+      if (!activeAddress && baseAccountConnector) {
+        const connected = await connectAsync({ connector: baseAccountConnector });
+        activeConnector = baseAccountConnector;
+        activeAddress = connected.accounts[0];
+      }
+
+      if (!activeAddress) {
+        throw new Error("Connect wallet first");
+      }
+
+      await switchChainAsync({ chainId: base.id });
+
+      const data = encodeFunctionData({
+        abi: snakeRecordsAbi,
+        functionName: "recordRun",
+        args: [BigInt(game.score), game.snake.length, game.status === "won", BigInt(game.moves)]
+      });
+      const capabilities = PAYMASTER_URL
+        ? {
+            paymasterService: {
+              url: PAYMASTER_URL
+            }
+          }
+        : undefined;
+      const result = await sendCallsAsync({
+        calls: [
+          {
+            data,
+            to: RECORD_CONTRACT_ADDRESS
+          }
+        ],
+        capabilities,
+        chainId: base.id,
+        connector: activeConnector,
+        experimental_fallback: true
+      });
+
+      setRecordStatus(`Record sent ${result.id.slice(0, 10)}...`);
+    } catch (caught) {
+      setRecordStatus(caught instanceof Error ? caught.message : "Record transaction failed");
+    }
+  };
+
   return (
     <main className="app">
       <WalletConnect />
@@ -455,6 +702,29 @@ function App() {
             <span>{game.score}</span>
             <span>{game.snake.length}/{TOTAL_CELLS}</span>
             <span>{filledPercent}%</span>
+          </div>
+          <div className="top-actions" aria-label="Snake actions">
+            <button
+              className="checkin-button"
+              type="button"
+              onClick={checkIn}
+              disabled={isCheckingIn}
+              title="Check in"
+              aria-label="Check in"
+            >
+              <Check />
+              <span>{streak?.streak ?? 0}</span>
+              <small>{streakTimeLeft > 0 ? formatDuration(streakTimeLeft) : "ready"}</small>
+            </button>
+            <button
+              className="admin-notify-button"
+              type="button"
+              onClick={sendAdminNotification}
+              title="Send random Base App notification"
+              aria-label="Send random Base App notification"
+            >
+              <Bell />
+            </button>
           </div>
         </div>
 
@@ -476,6 +746,20 @@ function App() {
                     ? "Restart and try to fill the full board."
                     : "Fill the board to finish the game."}
               </span>
+              {gameEnded && (
+                <button
+                  className="save-record-button"
+                  type="button"
+                  disabled={isSavingRecord}
+                  onClick={saveRecord}
+                >
+                  <Save />
+                  <span>{isSavingRecord ? "Saving..." : "Save record"}</span>
+                </button>
+              )}
+              {(recordStatus || streakStatus) && (
+                <small className="action-status">{recordStatus ?? streakStatus}</small>
+              )}
             </div>
           )}
         </div>
@@ -589,6 +873,19 @@ function App() {
 
 function easeOutCubic(value: number) {
   return 1 - Math.pow(1 - value, 3);
+}
+
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+  }
+
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function interpolateSnake(previousSnake: Point[], targetSnake: Point[], progress: number): Point[] {

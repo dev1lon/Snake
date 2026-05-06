@@ -21,13 +21,28 @@ type Session = {
   mode: WalletMode;
 };
 
+type StreakRecord = {
+  address: string;
+  lastCheckInAt: number;
+  streak: number;
+};
+
+type NotificationResult = {
+  failedCount: number;
+  sentCount: number;
+};
+
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
 const frontendOrigin = process.env.FRONTEND_ORIGIN;
 const databaseUrl = process.env.DATABASE_URL;
+const baseAppUrl = process.env.BASE_APP_URL ?? (frontendOrigin ? normalizeOrigin(frontendOrigin) : "");
+const baseNotificationsApiKey = process.env.BASE_NOTIFICATIONS_API_KEY;
+const adminNotificationKey = process.env.ADMIN_NOTIFICATION_KEY;
 const leaderboard: LeaderboardEntry[] = [];
 const nonces = new Map<string, number>();
 const sessions = new Map<string, Session>();
+const streaks = new Map<string, StreakRecord>();
 const pool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
@@ -37,6 +52,15 @@ const pool = databaseUrl
 const sessionCookieName = "sneak_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 400;
 const nonceMaxAgeMs = 10 * 60 * 1000;
+const checkInIntervalMs = 24 * 60 * 60 * 1000;
+const checkInGraceMs = 12 * 60 * 60 * 1000;
+const notificationTexts = [
+  "Your Snake streak is waiting.",
+  "One clean run can beat your record.",
+  "The board is ready. Keep the streak alive.",
+  "Snake check-in is open.",
+  "Base snake is calling you back."
+];
 
 function getAllowedOrigins() {
   if (!frontendOrigin) {
@@ -47,6 +71,10 @@ function getAllowedOrigins() {
   const host = origin.replace(/^https?:\/\//, "");
 
   return [origin, `https://${host}`, `http://${host}`];
+}
+
+function normalizeOrigin(value: string) {
+  return value.startsWith("http") ? value : `https://${value}`;
 }
 
 function createNonce() {
@@ -121,6 +149,15 @@ async function ensureSessionStore() {
       last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS check_in_streaks (
+      address TEXT PRIMARY KEY,
+      streak INTEGER NOT NULL,
+      last_check_in_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 }
 
 async function getSession(token: string) {
@@ -172,6 +209,186 @@ async function deleteSession(token: string) {
   }
 
   await pool.query("DELETE FROM auth_sessions WHERE token = $1", [token]);
+}
+
+async function getRequestSession(cookieHeader: string | undefined) {
+  const token = getSessionToken(cookieHeader);
+  const session = token ? await getSession(token) : undefined;
+
+  return { session, token };
+}
+
+async function getStreak(address: string) {
+  const key = address.toLowerCase();
+
+  if (!pool) {
+    return streaks.get(key);
+  }
+
+  const result = await pool.query<{
+    address: string;
+    last_check_in_at: Date;
+    streak: number;
+  }>("SELECT address, last_check_in_at, streak FROM check_in_streaks WHERE address = $1", [key]);
+  const row = result.rows[0];
+
+  if (!row) {
+    return undefined;
+  }
+
+  return {
+    address: row.address,
+    lastCheckInAt: row.last_check_in_at.getTime(),
+    streak: row.streak
+  };
+}
+
+async function saveStreak(record: StreakRecord) {
+  const key = record.address.toLowerCase();
+
+  if (!pool) {
+    streaks.set(key, { ...record, address: key });
+    return;
+  }
+
+  await pool.query(
+    `
+      INSERT INTO check_in_streaks (address, streak, last_check_in_at)
+      VALUES ($1, $2, to_timestamp($3 / 1000.0))
+      ON CONFLICT (address)
+      DO UPDATE SET
+        streak = EXCLUDED.streak,
+        last_check_in_at = EXCLUDED.last_check_in_at,
+        updated_at = NOW()
+    `,
+    [key, record.streak, record.lastCheckInAt]
+  );
+}
+
+function makeStreakStatus(record: StreakRecord | undefined, checkedInToday = false) {
+  if (!record) {
+    return {
+      authenticated: true,
+      canCheckIn: true,
+      checkedInToday,
+      expiresAt: null,
+      nextCheckInAt: null,
+      streak: 0
+    };
+  }
+
+  const nextCheckInAt = record.lastCheckInAt + checkInIntervalMs;
+  const expiresAt = nextCheckInAt + checkInGraceMs;
+  const now = Date.now();
+
+  return {
+    authenticated: true,
+    canCheckIn: now >= nextCheckInAt,
+    checkedInToday,
+    expiresAt: new Date(expiresAt).toISOString(),
+    nextCheckInAt: new Date(nextCheckInAt).toISOString(),
+    streak: record.streak
+  };
+}
+
+function applyCheckIn(record: StreakRecord | undefined, address: string) {
+  const now = Date.now();
+  const key = address.toLowerCase();
+
+  if (!record) {
+    return { address: key, lastCheckInAt: now, streak: 1 };
+  }
+
+  const nextCheckInAt = record.lastCheckInAt + checkInIntervalMs;
+  const expiresAt = nextCheckInAt + checkInGraceMs;
+
+  if (now < nextCheckInAt) {
+    return record;
+  }
+
+  return {
+    address: key,
+    lastCheckInAt: now,
+    streak: now <= expiresAt ? record.streak + 1 : 1
+  };
+}
+
+async function sendBaseNotification(
+  walletAddresses: string[],
+  title: string,
+  message: string,
+  targetPath = "/"
+): Promise<NotificationResult> {
+  if (!baseNotificationsApiKey || !baseAppUrl) {
+    return { failedCount: walletAddresses.length, sentCount: 0 };
+  }
+
+  const response = await fetch("https://dashboard.base.org/api/v1/notifications/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": baseNotificationsApiKey
+    },
+    body: JSON.stringify({
+      app_url: baseAppUrl,
+      message,
+      target_path: targetPath,
+      title,
+      wallet_addresses: walletAddresses
+    })
+  });
+  const data = (await response.json().catch(() => null)) as NotificationResult | null;
+
+  if (!response.ok || !data) {
+    return { failedCount: walletAddresses.length, sentCount: 0 };
+  }
+
+  return {
+    failedCount: data.failedCount,
+    sentCount: data.sentCount
+  };
+}
+
+async function getNotificationAudience() {
+  if (!baseNotificationsApiKey || !baseAppUrl) {
+    return [];
+  }
+
+  const addresses: string[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const url = new URL("https://dashboard.base.org/api/v1/notifications/app/users");
+    url.searchParams.set("app_url", baseAppUrl);
+    url.searchParams.set("notification_enabled", "true");
+    url.searchParams.set("limit", "100");
+
+    if (cursor) {
+      url.searchParams.set("cursor", cursor);
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        "x-api-key": baseNotificationsApiKey
+      }
+    });
+    const data = (await response.json().catch(() => null)) as
+      | { nextCursor?: string; users?: Array<{ address?: string }> }
+      | null;
+
+    if (!response.ok || !data?.users) {
+      break;
+    }
+
+    data.users.forEach((user) => {
+      if (user.address) {
+        addresses.push(user.address);
+      }
+    });
+    cursor = data.nextCursor;
+  } while (cursor && addresses.length < 1000);
+
+  return addresses.slice(0, 1000);
 }
 
 void ensureSessionStore().catch((error) => {
@@ -280,6 +497,70 @@ app.post("/api/auth/verify", async (req, res) => {
     address: session.address,
     mode: session.mode
   });
+});
+
+app.get("/api/streak", async (req, res) => {
+  const { session, token } = await getRequestSession(req.headers.cookie);
+
+  if (!token || !session) {
+    res.status(401).json({ authenticated: false });
+    return;
+  }
+
+  const record = await getStreak(session.address);
+
+  res.json(makeStreakStatus(record));
+});
+
+app.post("/api/streak/check-in", async (req, res) => {
+  const { session, token } = await getRequestSession(req.headers.cookie);
+
+  if (!token || !session) {
+    res.status(401).json({ error: "Connect wallet to check in." });
+    return;
+  }
+
+  const current = await getStreak(session.address);
+  const before = current?.lastCheckInAt;
+  const next = applyCheckIn(current, session.address);
+  const checkedInToday = before !== next.lastCheckInAt;
+
+  await saveStreak(next);
+
+  if (checkedInToday) {
+    void sendBaseNotification(
+      [session.address],
+      "Snake streak",
+      `Streak ${next.streak} saved. Next check-in opens in 24h.`,
+      "/"
+    ).catch((error) => console.error("Failed to send streak notification", error));
+  }
+
+  res.json(makeStreakStatus(next, checkedInToday));
+});
+
+app.post("/api/admin/notify-random", async (req, res) => {
+  if (!adminNotificationKey || req.header("x-admin-key") !== adminNotificationKey) {
+    res.status(403).json({ error: "Admin notifications are locked." });
+    return;
+  }
+
+  if (!baseNotificationsApiKey || !baseAppUrl) {
+    res.status(501).json({ error: "Base notification env is not configured." });
+    return;
+  }
+
+  const audience = await getNotificationAudience();
+
+  if (audience.length === 0) {
+    res.json({ failedCount: 0, sentCount: 0 });
+    return;
+  }
+
+  const text = notificationTexts[Math.floor(Math.random() * notificationTexts.length)];
+  const result = await sendBaseNotification(audience, "Snake", text, "/");
+
+  res.json(result);
 });
 
 app.get("/api/leaderboard", (_req, res) => {

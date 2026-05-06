@@ -132,13 +132,17 @@ export function WalletConnect() {
     void restoreSession();
   }, []);
 
-  const connectSmartWallet = async () => {
+  const connectSmartWallet = async (showError = true) => {
     if (!baseAccountConnector) {
-      setError("Smart wallet is unavailable");
+      if (showError) {
+        setError("Smart wallet is unavailable");
+      }
       return;
     }
 
-    setError(null);
+    if (showError) {
+      setError(null);
+    }
 
     try {
       const nonce = await getAuthNonce();
@@ -173,10 +177,29 @@ export function WalletConnect() {
         mode: session.mode
       });
       setIsOpen(false);
+      localStorage.removeItem("snake_auto_wallet_disabled");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Smart wallet connection failed");
+      if (showError) {
+        setError(caught instanceof Error ? caught.message : "Smart wallet connection failed");
+      }
     }
   };
+
+  useEffect(() => {
+    if (authState || isConnected || !baseAccountConnector) {
+      return;
+    }
+
+    if (localStorage.getItem("snake_auto_wallet_disabled") === "true") {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void connectSmartWallet(false);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [authState, baseAccountConnector, isConnected]);
 
   const connectStandardWallet = async () => {
     if (!standardConnector) {
@@ -226,6 +249,7 @@ export function WalletConnect() {
     setAuthState(null);
     setError(null);
     setIsOpen(false);
+    localStorage.setItem("snake_auto_wallet_disabled", "true");
   };
 
   return (
@@ -253,7 +277,7 @@ export function WalletConnect() {
 
           {isOpen && (
             <div className="wallet-menu">
-              <button type="button" disabled={isPending || !baseAccountConnector} onClick={connectSmartWallet}>
+              <button type="button" disabled={isPending || !baseAccountConnector} onClick={() => connectSmartWallet()}>
                 Smart Wallet
               </button>
               <button type="button" disabled={isPending || !standardConnector} onClick={connectStandardWallet}>
