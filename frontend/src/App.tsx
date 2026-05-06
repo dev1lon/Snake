@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { encodeFunctionData, type Address, type Hex } from "viem";
-import { useAccount, useConnect, useSendCalls, useSwitchChain } from "wagmi";
+import { useAccount, useSendCalls, useSwitchChain } from "wagmi";
 import { base } from "wagmi/chains";
 import { WalletConnect } from "./WalletConnect";
 import { snakeRecordsAbi } from "./contracts";
@@ -330,16 +330,11 @@ function App() {
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [streakStatus, setStreakStatus] = useState<string | null>(null);
   const { address, connector, isConnected } = useAccount();
-  const { connectAsync, connectors } = useConnect();
   const { sendCallsAsync, isPending: isSavingRecord } = useSendCalls();
   const { switchChainAsync } = useSwitchChain();
 
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
   const gameEnded = game.status === "lost" || game.status === "won";
-  const baseAccountConnector = useMemo(
-    () => connectors.find((availableConnector) => availableConnector.id === "baseAccount"),
-    [connectors]
-  );
   const streakExpiresMs = streak?.expiresAt ? new Date(streak.expiresAt).getTime() : 0;
   const streakTimeLeft = Math.max(0, streakExpiresMs - nowMs);
 
@@ -576,16 +571,7 @@ function App() {
 
     try {
       if (RECORD_CONTRACT_ADDRESS && (!streak || streak.canCheckIn)) {
-        let activeConnector = connector;
-        let activeAddress = address;
-
-        if (!activeAddress && baseAccountConnector) {
-          const connected = await connectAsync({ connector: baseAccountConnector });
-          activeConnector = baseAccountConnector;
-          activeAddress = connected.accounts[0];
-        }
-
-        if (!activeAddress) {
+        if (!address || !connector) {
           throw new Error("Connect wallet first");
         }
 
@@ -604,7 +590,7 @@ function App() {
           ],
           capabilities: getTransactionCapabilities(),
           chainId: base.id,
-          connector: activeConnector,
+          connector,
           experimental_fallback: true
         });
       }
@@ -661,16 +647,7 @@ function App() {
     setRecordStatus(null);
 
     try {
-      let activeConnector = connector;
-      let activeAddress = address;
-
-      if (!activeAddress && baseAccountConnector) {
-        const connected = await connectAsync({ connector: baseAccountConnector });
-        activeConnector = baseAccountConnector;
-        activeAddress = connected.accounts[0];
-      }
-
-      if (!activeAddress) {
+      if (!address || !connector) {
         throw new Error("Connect wallet first");
       }
 
@@ -690,7 +667,7 @@ function App() {
         ],
         capabilities: getTransactionCapabilities(),
         chainId: base.id,
-        connector: activeConnector,
+        connector,
         experimental_fallback: true
       });
 

@@ -177,29 +177,12 @@ export function WalletConnect() {
         mode: session.mode
       });
       setIsOpen(false);
-      localStorage.removeItem("snake_auto_wallet_disabled");
     } catch (caught) {
       if (showError) {
         setError(caught instanceof Error ? caught.message : "Smart wallet connection failed");
       }
     }
   };
-
-  useEffect(() => {
-    if (authState || isConnected || !baseAccountConnector) {
-      return;
-    }
-
-    if (localStorage.getItem("snake_auto_wallet_disabled") === "true") {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void connectSmartWallet(false);
-    }, 350);
-
-    return () => window.clearTimeout(timer);
-  }, [authState, baseAccountConnector, isConnected]);
 
   const connectStandardWallet = async () => {
     if (!standardConnector) {
@@ -249,7 +232,6 @@ export function WalletConnect() {
     setAuthState(null);
     setError(null);
     setIsOpen(false);
-    localStorage.setItem("snake_auto_wallet_disabled", "true");
   };
 
   return (
