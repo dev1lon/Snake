@@ -691,7 +691,6 @@ function App() {
             <h1>{statusText}</h1>
           </div>
           <div className="stats" aria-label="Game stats">
-            <span>{game.score}</span>
             <span>{game.snake.length}/{TOTAL_CELLS}</span>
             <span>{filledPercent}%</span>
           </div>
