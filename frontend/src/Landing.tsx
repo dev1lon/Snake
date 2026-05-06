@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { WalletConnect } from "./WalletConnect";
 import "./landing.css";
 
 const API_URL = import.meta.env.VITE_API_URL
@@ -32,9 +33,9 @@ export default function Landing() {
             <img src="/coin.png" alt="Base Snake" />
             BASE SNAKE
           </div>
-          <button className="lnd-wallet-btn" type="button" onClick={() => navigate("/game")}>
-            CONNECT WALLET
-          </button>
+          <div className="lnd-wallet-wrap">
+            <WalletConnect />
+          </div>
         </header>
 
         {/* Scrollable content */}

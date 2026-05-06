@@ -918,26 +918,75 @@ function drawGame(
     drawCoin(context, game.food, cell, coinImage);
   }
 
-  game.snake.forEach((part, index) => {
-    const inset = cell * 0.08;
-    const x = part.x * cell + inset;
-    const y = part.y * cell + inset;
-    const width = cell - inset * 2;
-    const radius = Math.max(6, cell * 0.16);
+  // Draw tail → head so head renders on top
+  for (let i = game.snake.length - 1; i >= 0; i--) {
+    drawSnakeSegment(context, game.snake[i], cell, i === 0);
+  }
+}
 
-    context.fillStyle = index === 0 ? "#0052ff" : index % 3 === 0 ? "#1b6dff" : "#0b5cff";
-    roundedRect(context, x, y, width, width, radius);
+function drawSnakeSegment(
+  context: CanvasRenderingContext2D,
+  part: Point,
+  cell: number,
+  isHead: boolean
+) {
+  const pad = Math.ceil(cell * 0.075); // ~3px for 40px cell (design: p-[3px])
+  const x = part.x * cell + pad;
+  const y = part.y * cell + pad;
+  const w = cell - pad * 2;
+  const r = Math.max(4, Math.round(cell * 0.13)); // rounded-md
+
+  context.save();
+
+  // Outer glow (box-shadow 0 0 Xpx)
+  context.shadowColor = isHead ? "rgba(0,229,255,0.65)" : "rgba(0,82,255,0.55)";
+  context.shadowBlur = isHead ? 16 : 9;
+
+  // Main gradient fill
+  const grad = context.createLinearGradient(x, y, x + w, y + w);
+  if (isHead) {
+    grad.addColorStop(0, "#00E5FF");
+    grad.addColorStop(1, "#0052FF");
+  } else {
+    grad.addColorStop(0, "#0052FF");
+    grad.addColorStop(1, "#0036A8");
+  }
+  context.fillStyle = grad;
+  roundedRect(context, x, y, w, w, r);
+  context.fill();
+
+  // Cyan border stroke
+  context.shadowBlur = 0;
+  context.strokeStyle = isHead ? "rgba(0,229,255,0.9)" : "rgba(0,229,255,0.28)";
+  context.lineWidth = 1;
+  roundedRect(context, x + 0.5, y + 0.5, w - 1, w - 1, r);
+  context.stroke();
+
+  // Top highlight (inset 0 1px 1px rgba(255,255,255,...))
+  const hl = context.createLinearGradient(x, y, x, y + w * 0.35);
+  hl.addColorStop(0, isHead ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.28)");
+  hl.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = hl;
+  roundedRect(context, x + 1, y + 1, w - 2, w * 0.35, r);
+  context.fill();
+
+  context.restore();
+
+  // Eyes at bottom of head (items-end pb-1.5 gap-1.5 in design)
+  if (isHead) {
+    const eyeR = cell * 0.058;
+    const eyeY = y + w - eyeR * 2.2 - pad * 0.4;
+    const gap = w * 0.18;
+    context.save();
+    context.shadowColor = "rgba(255,255,255,0.9)";
+    context.shadowBlur = 5;
+    context.fillStyle = "#ffffff";
+    context.beginPath();
+    context.arc(x + w / 2 - gap, eyeY, eyeR, 0, Math.PI * 2);
+    context.arc(x + w / 2 + gap, eyeY, eyeR, 0, Math.PI * 2);
     context.fill();
-
-    if (index === 0) {
-      context.fillStyle = "#ffffff";
-      const eyeOffset = cell * 0.18;
-      context.beginPath();
-      context.arc(x + width * 0.34, y + eyeOffset + width * 0.22, cell * 0.055, 0, Math.PI * 2);
-      context.arc(x + width * 0.66, y + eyeOffset + width * 0.22, cell * 0.055, 0, Math.PI * 2);
-      context.fill();
-    }
-  });
+    context.restore();
+  }
 }
 
 function drawCoin(
