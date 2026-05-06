@@ -612,6 +612,19 @@ app.post("/api/leaderboard", (req, res) => {
   res.status(201).json({ entry });
 });
 
+app.get("/api/stats", async (_req, res) => {
+  let players = 0;
+
+  if (pool) {
+    const result = await pool.query<{ count: string }>("SELECT COUNT(*) AS count FROM check_in_streaks");
+    players = parseInt(result.rows[0]?.count ?? "0", 10);
+  } else {
+    players = streaks.size;
+  }
+
+  res.json({ players });
+});
+
 app.listen(port, () => {
   console.log(`Snake backend listening on http://localhost:${port}`);
 });
