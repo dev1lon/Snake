@@ -70,6 +70,7 @@ Deploy `contracts/SnakeRecords.sol` to Base mainnet, then set:
 ```bash
 VITE_RECORD_CONTRACT_ADDRESS=0x9e5d82E6B6419C066Bc57F5a70116659c468d780
 VITE_PAYMASTER_URL=https://...
+VITE_BUILDER_CODE_SUFFIX=0x62635f38776576327439680b0080218021802180218021802180218021802180218021
 ```
 
 For Base App notifications and admin broadcast:
@@ -82,3 +83,4 @@ ADMIN_WALLET_ADDRESS=0x...
 `BASE_APP_URL` is optional. If it is not set, the backend uses `FRONTEND_ORIGIN`.
 
 Gasless record/check-in writes require the deployed contract to be allowlisted in your Base/CDP paymaster policy.
+The builder code is `bc_8wev2t9h`; the app sends its ERC-8021 encoded suffix through `capabilities.dataSuffix`.

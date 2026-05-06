@@ -11,7 +11,7 @@ import {
   Save
 } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { encodeFunctionData, type Address } from "viem";
+import { encodeFunctionData, type Address, type Hex } from "viem";
 import { useAccount, useConnect, useSendCalls, useSwitchChain } from "wagmi";
 import { base } from "wagmi/chains";
 import { WalletConnect } from "./WalletConnect";
@@ -59,10 +59,14 @@ const TOTAL_CELLS = BOARD_CELLS * BOARD_CELLS;
 const START_LENGTH = 1;
 const STEP_MS = 236;
 const DEFAULT_RECORD_CONTRACT_ADDRESS = "0x9e5d82E6B6419C066Bc57F5a70116659c468d780" as const;
+const DEFAULT_BUILDER_CODE_SUFFIX =
+  "0x62635f38776576327439680b0080218021802180218021802180218021802180218021" as const;
 const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 const RECORD_CONTRACT_ADDRESS =
   getAddressEnv(import.meta.env.VITE_RECORD_CONTRACT_ADDRESS) ?? DEFAULT_RECORD_CONTRACT_ADDRESS;
 const PAYMASTER_URL = import.meta.env.VITE_PAYMASTER_URL;
+const BUILDER_CODE_SUFFIX =
+  getHexEnv(import.meta.env.VITE_BUILDER_CODE_SUFFIX) ?? DEFAULT_BUILDER_CODE_SUFFIX;
 
 const vectors: Record<Direction, Point> = {
   up: { x: 0, y: -1 },
@@ -174,6 +178,26 @@ function normalizeApiUrl(value: string | undefined) {
 
 function getAddressEnv(value: string | undefined): Address | null {
   return value && /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as Address) : null;
+}
+
+function getHexEnv(value: string | undefined): Hex | null {
+  return value && /^0x([a-fA-F0-9]{2})+$/.test(value) ? (value as Hex) : null;
+}
+
+function getTransactionCapabilities() {
+  return {
+    ...(PAYMASTER_URL
+      ? {
+          paymasterService: {
+            url: PAYMASTER_URL
+          }
+        }
+      : {}),
+    dataSuffix: {
+      optional: true,
+      value: BUILDER_CODE_SUFFIX
+    }
+  };
 }
 
 function ensureFoodOnState(state: GameState): GameState {
@@ -571,14 +595,6 @@ function App() {
           abi: snakeRecordsAbi,
           functionName: "checkIn"
         });
-        const capabilities = PAYMASTER_URL
-          ? {
-              paymasterService: {
-                url: PAYMASTER_URL
-              }
-            }
-          : undefined;
-
         await sendCallsAsync({
           calls: [
             {
@@ -586,7 +602,7 @@ function App() {
               to: RECORD_CONTRACT_ADDRESS
             }
           ],
-          capabilities,
+          capabilities: getTransactionCapabilities(),
           chainId: base.id,
           connector: activeConnector,
           experimental_fallback: true
@@ -665,13 +681,6 @@ function App() {
         functionName: "recordRun",
         args: [BigInt(game.score), game.snake.length, game.status === "won", BigInt(game.moves)]
       });
-      const capabilities = PAYMASTER_URL
-        ? {
-            paymasterService: {
-              url: PAYMASTER_URL
-            }
-          }
-        : undefined;
       const result = await sendCallsAsync({
         calls: [
           {
@@ -679,7 +688,7 @@ function App() {
             to: RECORD_CONTRACT_ADDRESS
           }
         ],
-        capabilities,
+        capabilities: getTransactionCapabilities(),
         chainId: base.id,
         connector: activeConnector,
         experimental_fallback: true
