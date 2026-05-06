@@ -40,6 +40,124 @@ input {
   font: inherit;
 }
 
+.wallet-widget {
+  position: fixed;
+  left: 14px;
+  top: 12px;
+  z-index: 20;
+  display: grid;
+  gap: 8px;
+  width: min(260px, calc(100vw - 28px));
+}
+
+.wallet-trigger,
+.wallet-connected,
+.wallet-menu button {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(5, 14, 31, 0.86);
+  color: #f7fbff;
+  backdrop-filter: blur(12px);
+}
+
+.wallet-trigger {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.wallet-trigger span {
+  overflow: hidden;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-trigger svg,
+.wallet-connected svg {
+  width: 18px;
+  height: 18px;
+}
+
+.wallet-menu {
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(5, 14, 31, 0.9);
+  backdrop-filter: blur(14px);
+}
+
+.wallet-menu button {
+  height: 38px;
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 800;
+  touch-action: manipulation;
+}
+
+.wallet-menu button:hover:not(:disabled),
+.wallet-trigger:hover {
+  border-color: rgba(55, 194, 255, 0.82);
+}
+
+.wallet-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.wallet-connected {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 32px;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 5px 5px 5px 10px;
+}
+
+.wallet-connected span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.wallet-connected strong {
+  color: #f7fbff;
+  font-size: 0.82rem;
+}
+
+.wallet-connected button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f7fbff;
+  cursor: pointer;
+}
+
+.wallet-error {
+  border: 1px solid rgba(240, 98, 88, 0.42);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: rgba(60, 13, 19, 0.88);
+  color: #ffd7d4;
+  font-size: 0.78rem;
+}
+
 .app {
   display: grid;
   grid-template-rows: minmax(0, 1fr) var(--controls-height);

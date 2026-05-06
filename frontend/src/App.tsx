@@ -8,6 +8,7 @@ import {
   RotateCcw
 } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { WalletConnect } from "./WalletConnect";
 
 type Point = {
   x: number;
@@ -375,6 +376,7 @@ function App() {
 
   return (
     <main className="app">
+      <WalletConnect />
       <section className="game-area" aria-label="Snake game board">
         <div className="top-bar">
           <div>
