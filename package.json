@@ -11,9 +11,9 @@
     "start": "npm run start --prefix backend",
     "lint": "npm run lint --prefix frontend && npm run lint --prefix backend",
     "install:all": "npm install",
-    "postinstall": "npm install --prefix backend && npm install --prefix frontend",
-    "render:backend": "npm install --prefix backend && npm run build --prefix backend",
-    "render:frontend": "npm install --prefix frontend && npm run build --prefix frontend"
+    "postinstall": "npm install --include=dev --prefix backend && npm install --include=dev --prefix frontend",
+    "render:backend": "npm install --include=dev --prefix backend && npm run build --prefix backend",
+    "render:frontend": "npm install --include=dev --prefix frontend && npm run build --prefix frontend"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

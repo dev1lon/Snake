@@ -33,6 +33,30 @@ Publish directory:
 frontend/dist
 ```
 
+Backend manual service from the repo root:
+
+```bash
+npm run render:backend
+```
+
+Start command:
+
+```bash
+npm run start
+```
+
+If a Render service uses `backend` as Root Directory instead of repo root, use:
+
+```bash
+npm install --include=dev && npm run build
+```
+
+Start command for `backend` Root Directory:
+
+```bash
+npm run start
+```
+
 If using `render.yaml`, Render uses `frontend` and `backend` as separate service roots.
 
 ## MVP
