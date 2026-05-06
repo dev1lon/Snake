@@ -53,7 +53,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 36px 20px 8px;
+  padding: max(28px, env(safe-area-inset-top, 28px)) 20px 6px;
 }
 
 .gs-brand-label {
@@ -79,7 +79,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 
 .gs-title {
   font-family: 'Space Grotesk', sans-serif;
-  font-size: 2.25rem;
+  font-size: clamp(1.75rem, 8vw, 2.25rem);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1;
@@ -182,11 +182,12 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 
 /* ── Board area ─────────────────────────────────────────────── */
 .gs-board-area {
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 12px 20px 8px;
+  padding: 6px 20px;
   position: relative;
 }
 
@@ -204,8 +205,10 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 
 .gs-board-panel {
   position: relative;
-  width: 100%;
-  max-width: 380px;
+  /* fills available height first, width follows via aspect-ratio */
+  height: 100%;
+  max-height: min(380px, calc(100vw - 40px));
+  width: auto;
   aspect-ratio: 1;
   background: linear-gradient(145deg, rgba(16,24,48,0.7) 0%, rgba(6,9,18,0.8) 100%);
   backdrop-filter: blur(20px);
@@ -305,12 +308,11 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 
 /* ── Controls ───────────────────────────────────────────────── */
 .gs-controls {
-  flex: 1;
+  flex-shrink: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  padding: 4px 20px max(28px, env(safe-area-inset-bottom, 28px));
-  min-height: 0;
+  padding: 10px 20px max(20px, env(safe-area-inset-bottom, 20px));
 }
 
 .gs-dpad {
