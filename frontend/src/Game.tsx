@@ -676,6 +676,11 @@ function Game() {
       });
 
       setRecordStatus(`Record sent ${result.id.slice(0, 10)}...`);
+
+      void fetch(`${API_URL}/api/player/record`, {
+        method: "POST",
+        credentials: "include"
+      }).catch(() => {});
     } catch (caught) {
       setRecordStatus(caught instanceof Error ? caught.message : "Record transaction failed");
     }

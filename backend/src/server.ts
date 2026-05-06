@@ -45,6 +45,7 @@ const leaderboard: LeaderboardEntry[] = [];
 const nonces = new Map<string, number>();
 const sessions = new Map<string, Session>();
 const streaks = new Map<string, StreakRecord>();
+const recordedPlayers = new Set<string>();
 const pool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
@@ -158,6 +159,13 @@ async function ensureSessionStore() {
       streak INTEGER NOT NULL,
       last_check_in_at TIMESTAMPTZ NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recorded_runs (
+      address TEXT PRIMARY KEY,
+      first_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
 }
@@ -612,14 +620,43 @@ app.post("/api/leaderboard", (req, res) => {
   res.status(201).json({ entry });
 });
 
+app.post("/api/player/record", async (req, res) => {
+  const { session } = await getRequestSession(req.headers.cookie);
+
+  if (!session) {
+    res.status(401).json({ error: "Not authenticated." });
+    return;
+  }
+
+  const address = session.address.toLowerCase();
+
+  if (pool) {
+    await pool.query(
+      `INSERT INTO recorded_runs (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
+      [address]
+    );
+  } else {
+    recordedPlayers.add(address);
+  }
+
+  res.json({ ok: true });
+});
+
 app.get("/api/stats", async (_req, res) => {
   let players = 0;
 
   if (pool) {
-    const result = await pool.query<{ count: string }>("SELECT COUNT(*) AS count FROM check_in_streaks");
+    const result = await pool.query<{ count: string }>(`
+      SELECT COUNT(DISTINCT address) AS count FROM (
+        SELECT address FROM check_in_streaks
+        UNION
+        SELECT address FROM recorded_runs
+      ) t
+    `);
     players = parseInt(result.rows[0]?.count ?? "0", 10);
   } else {
-    players = streaks.size;
+    const all = new Set([...streaks.keys(), ...recordedPlayers]);
+    players = all.size;
   }
 
   res.json({ players });
