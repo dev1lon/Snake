@@ -244,6 +244,19 @@ function App() {
 
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
 
+  const queueDirection = (direction: Direction) => {
+    const liveGame = gameRef.current;
+    const canTurn = liveGame.snake.length <= 1 || !isOpposite(liveGame.direction, direction);
+    const isNewDirection = liveGame.queuedDirection !== direction;
+
+    dispatch({ type: "move", direction });
+
+    if (liveGame.status === "running" && canTurn && isNewDirection) {
+      accumulatorRef.current = 0;
+      dispatch({ type: "tick" });
+    }
+  };
+
   useEffect(() => {
     const image = new Image();
     image.src = "/coin.png";
@@ -291,7 +304,7 @@ function App() {
       if (direction) {
         event.preventDefault();
         setActiveDirection(direction);
-        dispatch({ type: "move", direction });
+        queueDirection(direction);
       }
 
       if (event.key === " ") {
@@ -411,10 +424,6 @@ function App() {
     return "Ready";
   }, [game.status]);
 
-  const move = (direction: Direction) => {
-    dispatch({ type: "move", direction });
-  };
-
   const releaseFocus = () => {
     requestAnimationFrame(() => {
       if (document.activeElement instanceof HTMLElement) {
@@ -425,7 +434,7 @@ function App() {
 
   const pressDirection = (direction: Direction) => {
     setActiveDirection(direction);
-    move(direction);
+    queueDirection(direction);
     releaseFocus();
   };
 
@@ -481,7 +490,9 @@ function App() {
                 type="button"
                 title="Restart"
                 aria-label="Restart"
-                onPointerDown={() => {
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.currentTarget.setPointerCapture(event.pointerId);
                   dispatch({ type: "reset" });
                   releaseFocus();
                 }}
@@ -496,7 +507,11 @@ function App() {
               type="button"
               title="Up"
               aria-label="Up"
-              onPointerDown={() => pressDirection("up")}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                pressDirection("up");
+              }}
               onPointerLeave={() => releaseDirection("up")}
               onPointerUp={() => releaseDirection("up")}
             >
@@ -507,7 +522,11 @@ function App() {
               type="button"
               title="Left"
               aria-label="Left"
-              onPointerDown={() => pressDirection("left")}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                pressDirection("left");
+              }}
               onPointerLeave={() => releaseDirection("left")}
               onPointerUp={() => releaseDirection("left")}
             >
@@ -522,7 +541,9 @@ function App() {
               aria-label={
                 game.status === "running" ? "Pause" : game.status === "paused" ? "Resume" : "Start"
               }
-              onPointerDown={() => {
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
                 dispatch({ type: game.status === "running" ? "pause" : "start" });
                 releaseFocus();
               }}
@@ -534,7 +555,11 @@ function App() {
               type="button"
               title="Right"
               aria-label="Right"
-              onPointerDown={() => pressDirection("right")}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                pressDirection("right");
+              }}
               onPointerLeave={() => releaseDirection("right")}
               onPointerUp={() => releaseDirection("right")}
             >
@@ -545,7 +570,11 @@ function App() {
               type="button"
               title="Down"
               aria-label="Down"
-              onPointerDown={() => pressDirection("down")}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                pressDirection("down");
+              }}
               onPointerLeave={() => releaseDirection("down")}
               onPointerUp={() => releaseDirection("down")}
             >
@@ -582,30 +611,8 @@ function drawGame(
   const cell = size / BOARD_CELLS;
 
   context.clearRect(0, 0, size, size);
-  context.fillStyle = "#07111f";
+  context.fillStyle = "#07162b";
   context.fillRect(0, 0, size, size);
-
-  for (let y = 0; y < BOARD_CELLS; y += 1) {
-    for (let x = 0; x < BOARD_CELLS; x += 1) {
-      context.fillStyle = (x + y) % 2 === 0 ? "#0c1d36" : "#08172b";
-      context.fillRect(x * cell, y * cell, cell, cell);
-    }
-  }
-
-  context.strokeStyle = "rgba(0, 82, 255, 0.18)";
-  context.lineWidth = 1;
-
-  for (let i = 0; i <= BOARD_CELLS; i += 1) {
-    const position = Math.round(i * cell) + 0.5;
-    context.beginPath();
-    context.moveTo(position, 0);
-    context.lineTo(position, size);
-    context.stroke();
-    context.beginPath();
-    context.moveTo(0, position);
-    context.lineTo(size, position);
-    context.stroke();
-  }
 
   if (game.food) {
     drawCoin(context, game.food, cell, coinImage);

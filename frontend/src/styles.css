@@ -42,6 +42,11 @@ input {
   font: inherit;
 }
 
+button {
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
 .wallet-widget {
   position: fixed;
   left: 14px;
@@ -316,9 +321,9 @@ canvas {
   cursor: pointer;
   touch-action: manipulation;
   transition:
-    transform 120ms ease,
-    border-color 120ms ease,
-    background 120ms ease;
+    transform 70ms ease,
+    border-color 70ms ease,
+    background 70ms ease;
 }
 
 .dpad-button:active,
