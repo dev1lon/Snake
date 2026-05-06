@@ -56,6 +56,18 @@ function getAuthAccount(authResult: unknown) {
   return result.accounts?.[0];
 }
 
+function getFriendlyWalletError(caught: unknown) {
+  if (!(caught instanceof Error)) {
+    return "Wallet connection failed";
+  }
+
+  if (caught.message === "Load failed" || caught.message === "Failed to fetch") {
+    return "Backend is unavailable. Try again after deploy finishes.";
+  }
+
+  return caught.message;
+}
+
 async function getAuthNonce() {
   const response = await fetch(`${API_URL}/api/auth/nonce`, {
     credentials: "include"
@@ -149,9 +161,8 @@ export function WalletConnect() {
     }
 
     try {
-      const nonce = await getAuthNonce();
-
       await connectAsync({ connector: baseAccountConnector });
+      const nonce = await getAuthNonce();
       const provider = (await baseAccountConnector.getProvider()) as BaseAccountProvider;
       const authResult = await provider.request({
         method: "wallet_connect",
@@ -183,7 +194,7 @@ export function WalletConnect() {
       setIsOpen(false);
     } catch (caught) {
       if (showError) {
-        setError(caught instanceof Error ? caught.message : "Smart wallet connection failed");
+        setError(getFriendlyWalletError(caught));
       }
     }
   };
@@ -197,7 +208,6 @@ export function WalletConnect() {
     setError(null);
 
     try {
-      const nonce = await getAuthNonce();
       const result = await connectAsync({ connector: standardConnector as Connector });
       const connectedAddress = result.accounts[0];
 
@@ -205,6 +215,7 @@ export function WalletConnect() {
         throw new Error("No wallet address returned");
       }
 
+      const nonce = await getAuthNonce();
       const message = new SiweMessage({
         domain: window.location.host,
         address: connectedAddress,
@@ -223,7 +234,7 @@ export function WalletConnect() {
       });
       setIsOpen(false);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Standard wallet connection failed");
+      setError(getFriendlyWalletError(caught));
     }
   };
 
