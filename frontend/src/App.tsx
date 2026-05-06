@@ -218,6 +218,7 @@ function App() {
   const targetSnakeRef = useRef<Point[]>(gameRef.current.snake);
   const previousSnakeRef = useRef<Point[]>(gameRef.current.snake);
   const [game, dispatch] = useReducer(reducer, undefined, () => createGame());
+  const [activeDirection, setActiveDirection] = useState<Direction | null>(null);
   const [coinReady, setCoinReady] = useState(false);
 
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
@@ -270,6 +271,7 @@ function App() {
 
       if (direction) {
         event.preventDefault();
+        setActiveDirection(direction);
         dispatch({ type: "move", direction });
       }
 
@@ -287,10 +289,31 @@ function App() {
         dispatch({ type: "reset" });
       }
     };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      const keyMap: Record<string, Direction | undefined> = {
+        ArrowUp: "up",
+        ArrowDown: "down",
+        ArrowLeft: "left",
+        ArrowRight: "right",
+        w: "up",
+        s: "down",
+        a: "left",
+        d: "right"
+      };
+      const direction = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
+
+      if (direction) {
+        setActiveDirection((current) => (current === direction ? null : current));
+      }
+    };
 
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
 
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
   }, [game.status]);
 
   useEffect(() => {
@@ -375,6 +398,15 @@ function App() {
     dispatch({ type: "move", direction });
   };
 
+  const pressDirection = (direction: Direction) => {
+    setActiveDirection(direction);
+    move(direction);
+  };
+
+  const releaseDirection = (direction: Direction) => {
+    setActiveDirection((current) => (current === direction ? null : current));
+  };
+
   return (
     <main className="app">
       <WalletConnect />
@@ -431,20 +463,24 @@ function App() {
               <span className="dpad-spacer restart" aria-hidden="true" />
             )}
             <button
-              className="dpad-button up"
+              className={`dpad-button up ${activeDirection === "up" ? "is-active" : ""}`}
               type="button"
               title="Up"
               aria-label="Up"
-              onPointerDown={() => move("up")}
+              onPointerDown={() => pressDirection("up")}
+              onPointerLeave={() => releaseDirection("up")}
+              onPointerUp={() => releaseDirection("up")}
             >
               <ArrowUp />
             </button>
             <button
-              className="dpad-button left"
+              className={`dpad-button left ${activeDirection === "left" ? "is-active" : ""}`}
               type="button"
               title="Left"
               aria-label="Left"
-              onPointerDown={() => move("left")}
+              onPointerDown={() => pressDirection("left")}
+              onPointerLeave={() => releaseDirection("left")}
+              onPointerUp={() => releaseDirection("left")}
             >
               <ArrowLeft />
             </button>
@@ -462,20 +498,24 @@ function App() {
               {game.status === "running" ? <Pause /> : <Play />}
             </button>
             <button
-              className="dpad-button right"
+              className={`dpad-button right ${activeDirection === "right" ? "is-active" : ""}`}
               type="button"
               title="Right"
               aria-label="Right"
-              onPointerDown={() => move("right")}
+              onPointerDown={() => pressDirection("right")}
+              onPointerLeave={() => releaseDirection("right")}
+              onPointerUp={() => releaseDirection("right")}
             >
               <ArrowRight />
             </button>
             <button
-              className="dpad-button down"
+              className={`dpad-button down ${activeDirection === "down" ? "is-active" : ""}`}
               type="button"
               title="Down"
               aria-label="Down"
-              onPointerDown={() => move("down")}
+              onPointerDown={() => pressDirection("down")}
+              onPointerLeave={() => releaseDirection("down")}
+              onPointerUp={() => releaseDirection("down")}
             >
               <ArrowDown />
             </button>

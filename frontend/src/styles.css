@@ -321,7 +321,8 @@ canvas {
 }
 
 .dpad-button:active,
-.dpad-center:active {
+.dpad-center:active,
+.dpad-button.is-active {
   transform: translateY(1px) scale(0.98);
 }
 
@@ -377,7 +378,8 @@ canvas {
 .dpad-button:hover,
 .dpad-center:hover,
 .dpad-button:focus-visible,
-.dpad-center:focus-visible {
+.dpad-center:focus-visible,
+.dpad-button.is-active {
   border-color: rgba(55, 194, 255, 0.82);
   background-color: #153b78;
 }
