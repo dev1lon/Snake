@@ -335,8 +335,7 @@ function App() {
 
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
   const gameEnded = game.status === "lost" || game.status === "won";
-  const streakExpiresMs = streak?.expiresAt ? new Date(streak.expiresAt).getTime() : 0;
-  const streakTimeLeft = Math.max(0, streakExpiresMs - nowMs);
+  const streakUi = getStreakUi(streak, nowMs);
 
   const queueDirection = (direction: Direction) => {
     const liveGame = gameRef.current;
@@ -706,8 +705,8 @@ function App() {
               aria-label="Check in"
             >
               <Check />
-              <span>{streak?.streak ?? 0}</span>
-              <small>{streakTimeLeft > 0 ? formatDuration(streakTimeLeft) : "ready"}</small>
+              <span>{streakUi.count}</span>
+              <small>{streakUi.timer}</small>
             </button>
             {streak?.isAdmin && (
               <button
@@ -870,17 +869,38 @@ function easeOutCubic(value: number) {
   return 1 - Math.pow(1 - value, 3);
 }
 
+function getStreakUi(streak: StreakState | null, now: number) {
+  if (!streak || streak.streak === 0) {
+    return { count: 0, timer: "ready" };
+  }
+
+  const nextCheckInAt = streak.nextCheckInAt ? new Date(streak.nextCheckInAt).getTime() : 0;
+  const expiresAt = streak.expiresAt ? new Date(streak.expiresAt).getTime() : 0;
+
+  if (nextCheckInAt > now) {
+    return {
+      count: streak.streak,
+      timer: formatDuration(nextCheckInAt - now)
+    };
+  }
+
+  if (expiresAt > now) {
+    return {
+      count: streak.streak,
+      timer: formatDuration(expiresAt - now)
+    };
+  }
+
+  return { count: 0, timer: "reset" };
+}
+
 function formatDuration(ms: number) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  if (hours > 0) {
-    return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
-  }
-
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  return `${hours}ч ${minutes.toString().padStart(2, "0")}м ${seconds.toString().padStart(2, "0")}с`;
 }
 
 function interpolateSnake(previousSnake: Point[], targetSnake: Point[], progress: number): Point[] {

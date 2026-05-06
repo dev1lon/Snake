@@ -283,6 +283,7 @@ function makeStreakStatus(record: StreakRecord | undefined, checkedInToday = fal
   const nextCheckInAt = record.lastCheckInAt + checkInIntervalMs;
   const expiresAt = nextCheckInAt + checkInGraceMs;
   const now = Date.now();
+  const activeStreak = now <= expiresAt ? record.streak : 0;
 
   return {
     authenticated: true,
@@ -291,7 +292,7 @@ function makeStreakStatus(record: StreakRecord | undefined, checkedInToday = fal
     expiresAt: new Date(expiresAt).toISOString(),
     isAdmin,
     nextCheckInAt: new Date(nextCheckInAt).toISOString(),
-    streak: record.streak
+    streak: activeStreak
   };
 }
 

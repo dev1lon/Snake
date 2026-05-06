@@ -2,13 +2,16 @@
   color: #ecf3f8;
   background: #080b10;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    "Inter Tight", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   --panel: #101620;
   --panel-strong: #151d29;
   --line: rgba(255, 255, 255, 0.12);
+  --line-strong: rgba(118, 169, 255, 0.28);
+  --glow-line: rgba(0, 82, 255, 0.38);
   --text-muted: #a9b7c5;
   --base-blue: #0052ff;
   --base-blue-soft: #1b6dff;
@@ -60,11 +63,16 @@ button {
 .wallet-trigger,
 .wallet-connected,
 .wallet-menu button {
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
-  background: rgba(5, 14, 31, 0.86);
+  background:
+    linear-gradient(180deg, rgba(15, 32, 62, 0.92), rgba(5, 14, 31, 0.9)),
+    rgba(5, 14, 31, 0.86);
   color: #f7fbff;
   backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
 .wallet-trigger {
@@ -96,10 +104,11 @@ button {
   display: grid;
   gap: 6px;
   padding: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
-  background: rgba(5, 14, 31, 0.9);
+  background: rgba(5, 14, 31, 0.94);
   backdrop-filter: blur(14px);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
 }
 
 .wallet-menu button {
@@ -172,6 +181,7 @@ button {
   height: 100dvh;
   background:
     radial-gradient(circle at 18% 12%, rgba(0, 82, 255, 0.22), transparent 30%),
+    radial-gradient(circle at 82% 18%, rgba(55, 194, 255, 0.12), transparent 24%),
     linear-gradient(135deg, #050b16 0%, #071733 50%, #060a12 100%);
 }
 
@@ -199,15 +209,18 @@ button {
 
 .eyebrow {
   color: var(--base-blue-soft);
-  font-size: 0.78rem;
-  font-weight: 800;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .top-bar h1 {
   margin-top: 2px;
   font-size: clamp(1.25rem, 3vw, 2rem);
+  font-weight: 900;
   line-height: 1.05;
+  text-shadow: 0 8px 28px rgba(0, 82, 255, 0.18);
 }
 
 .stats {
@@ -219,14 +232,19 @@ button {
 
 .stats span {
   min-width: 70px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   padding: 8px 10px;
-  background: rgba(16, 22, 32, 0.78);
+  background:
+    linear-gradient(180deg, rgba(22, 32, 50, 0.94), rgba(10, 17, 30, 0.9)),
+    rgba(16, 22, 32, 0.78);
   color: #f7fbff;
   font-size: 0.92rem;
-  font-weight: 800;
+  font-weight: 900;
   text-align: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 10px 28px rgba(0, 0, 0, 0.18);
 }
 
 .top-actions {
@@ -240,12 +258,17 @@ button {
 .save-record-button {
   display: inline-grid;
   align-items: center;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
-  background: rgba(16, 22, 32, 0.82);
+  background:
+    linear-gradient(180deg, rgba(22, 34, 58, 0.96), rgba(10, 18, 31, 0.94)),
+    rgba(16, 22, 32, 0.82);
   color: #f7fbff;
   cursor: pointer;
   touch-action: manipulation;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 10px 28px rgba(0, 0, 0, 0.2);
 }
 
 .checkin-button {
@@ -253,13 +276,13 @@ button {
   gap: 6px;
   min-height: 38px;
   padding: 0 10px;
-  font-weight: 800;
+  font-weight: 900;
 }
 
 .checkin-button small {
   color: var(--text-muted);
   font-size: 0.72rem;
-  font-weight: 800;
+  font-weight: 850;
 }
 
 .checkin-button svg,
@@ -297,9 +320,16 @@ button {
   aspect-ratio: 1;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
+  border-color: var(--line-strong);
   border-radius: 8px;
-  background: #061325;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.38);
+  background:
+    linear-gradient(180deg, rgba(7, 22, 43, 0.98), rgba(5, 16, 30, 0.98)),
+    #061325;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.4),
+    inset 0 0 42px rgba(0, 82, 255, 0.06),
+    0 0 0 1px rgba(0, 82, 255, 0.12),
+    0 24px 80px rgba(0, 0, 0, 0.22);
 }
 
 canvas {
@@ -341,20 +371,27 @@ canvas {
   inset: auto 16px 16px;
   display: grid;
   gap: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   padding: 10px 12px;
-  background: rgba(8, 11, 16, 0.78);
+  background:
+    linear-gradient(180deg, rgba(9, 17, 29, 0.92), rgba(5, 9, 15, 0.9)),
+    rgba(8, 11, 16, 0.78);
   backdrop-filter: blur(10px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 18px 44px rgba(0, 0, 0, 0.32);
 }
 
 .overlay strong {
   font-size: 1rem;
+  font-weight: 900;
 }
 
 .overlay span {
   color: var(--text-muted);
   font-size: 0.86rem;
+  font-weight: 650;
 }
 
 .save-record-button {
@@ -385,7 +422,7 @@ canvas {
   grid-template-rows: minmax(0, 1fr);
   align-items: center;
   min-height: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid var(--line-strong);
   padding: 8px clamp(14px, 3vw, 32px) 12px;
   background:
     linear-gradient(180deg, rgba(8, 24, 48, 0.92), rgba(6, 15, 30, 0.98)),
@@ -396,7 +433,7 @@ canvas {
 .dpad-center {
   display: inline-grid;
   place-items: center;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   color: #f5fbff;
   cursor: pointer;
   touch-action: manipulation;
@@ -404,6 +441,9 @@ canvas {
     transform 70ms ease,
     border-color 70ms ease,
     background 70ms ease;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 32px rgba(0, 0, 0, 0.22);
 }
 
 .dpad-button:active,
@@ -456,11 +496,11 @@ canvas {
 }
 
 .dpad-button {
-  background: linear-gradient(180deg, #123265, #0c2147);
+  background: linear-gradient(180deg, #153a74, #0b224b);
 }
 
 .dpad-center {
-  background: linear-gradient(180deg, rgba(0, 82, 255, 0.82), rgba(16, 93, 255, 0.46));
+  background: linear-gradient(180deg, rgba(0, 82, 255, 0.96), rgba(16, 93, 255, 0.58));
 }
 
 .dpad-button:hover,
