@@ -4,7 +4,6 @@ import {
   ArrowRight,
   ArrowUp,
   Bell,
-  Check,
   Pause,
   Play,
   RotateCcw,
@@ -708,7 +707,6 @@ function App() {
                 title={address ? "Check in" : "Connect wallet first"}
                 aria-label="Check in"
               >
-                <Check />
                 <span>Check-in</span>
               </button>
               <div className="streak-panel" aria-label="Streak status">
@@ -880,7 +878,7 @@ function easeOutCubic(value: number) {
 
 function getStreakUi(streak: StreakState | null, now: number) {
   if (!streak || streak.streak === 0) {
-    return { count: 0, timer: "ready" };
+    return { count: 0, timer: "0:00:00" };
   }
 
   const nextCheckInAt = streak.nextCheckInAt ? new Date(streak.nextCheckInAt).getTime() : 0;
@@ -900,7 +898,7 @@ function getStreakUi(streak: StreakState | null, now: number) {
     };
   }
 
-  return { count: 0, timer: "reset" };
+  return { count: 0, timer: "0:00:00" };
 }
 
 function formatDuration(ms: number) {
@@ -909,7 +907,7 @@ function formatDuration(ms: number) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  return `${hours}ч ${minutes.toString().padStart(2, "0")}м ${seconds.toString().padStart(2, "0")}с`;
+  return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function interpolateSnake(previousSnake: Point[], targetSnake: Point[], progress: number): Point[] {

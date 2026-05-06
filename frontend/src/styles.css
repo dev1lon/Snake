@@ -99,6 +99,10 @@ button {
 }
 
 .wallet-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
   display: grid;
   gap: 6px;
   padding: 6px;
@@ -285,7 +289,8 @@ button {
 }
 
 .checkin-button {
-  grid-template-columns: 18px auto;
+  grid-template-columns: auto;
+  justify-content: center;
   gap: 6px;
   min-height: 38px;
   padding: 0 10px;
@@ -696,13 +701,14 @@ canvas {
   }
 
   .checkin-button span {
-    display: none;
+    display: inline;
   }
 
   .checkin-button {
-    grid-template-columns: 18px;
-    width: 36px;
+    grid-template-columns: auto;
+    width: auto;
     place-content: center;
+    padding: 0 7px;
   }
 
   .streak-panel {
