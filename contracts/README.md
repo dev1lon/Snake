@@ -10,16 +10,17 @@ Functions:
 Frontend env after deployment:
 
 ```bash
-VITE_RECORD_CONTRACT_ADDRESS=0x...
+VITE_RECORD_CONTRACT_ADDRESS=0x9e5d82E6B6419C066Bc57F5a70116659c468d780
 VITE_PAYMASTER_URL=https://...
 ```
 
 Backend env for Base App notifications:
 
 ```bash
-BASE_APP_URL=https://snake-frontend-cx28.onrender.com
-BASE_NOTIFICATIONS_API_KEY=...
-ADMIN_NOTIFICATION_KEY=...
+BASE_API_KEY=...
+ADMIN_WALLET_ADDRESS=0x...
 ```
+
+`BASE_APP_URL` is optional if `FRONTEND_ORIGIN` already points to the public app URL.
 
 For gasless Base mainnet writes, add the deployed contract address and `recordRun` call policy to the paymaster allowlist in Base/Coinbase Developer Platform.

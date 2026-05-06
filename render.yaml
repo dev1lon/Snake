@@ -15,11 +15,9 @@ services:
           type: web
           name: snake-frontend
           property: host
-      - key: BASE_APP_URL
-        value: https://snake-frontend-cx28.onrender.com
-      - key: BASE_NOTIFICATIONS_API_KEY
+      - key: BASE_API_KEY
         sync: false
-      - key: ADMIN_NOTIFICATION_KEY
+      - key: ADMIN_WALLET_ADDRESS
         sync: false
 
   - type: web
@@ -35,8 +33,6 @@ services:
           name: snake-backend
           property: host
       - key: VITE_RECORD_CONTRACT_ADDRESS
-        sync: false
+        value: 0x9e5d82E6B6419C066Bc57F5a70116659c468d780
       - key: VITE_PAYMASTER_URL
-        sync: false
-      - key: VITE_ADMIN_NOTIFICATION_KEY
         sync: false

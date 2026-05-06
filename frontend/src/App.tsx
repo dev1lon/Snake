@@ -49,6 +49,7 @@ type StreakState = {
   canCheckIn: boolean;
   checkedInToday: boolean;
   expiresAt: string | null;
+  isAdmin?: boolean;
   nextCheckInAt: string | null;
   streak: number;
 };
@@ -57,10 +58,11 @@ const BOARD_CELLS = 16;
 const TOTAL_CELLS = BOARD_CELLS * BOARD_CELLS;
 const START_LENGTH = 1;
 const STEP_MS = 236;
+const DEFAULT_RECORD_CONTRACT_ADDRESS = "0x9e5d82E6B6419C066Bc57F5a70116659c468d780" as const;
 const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
-const RECORD_CONTRACT_ADDRESS = getAddressEnv(import.meta.env.VITE_RECORD_CONTRACT_ADDRESS);
+const RECORD_CONTRACT_ADDRESS =
+  getAddressEnv(import.meta.env.VITE_RECORD_CONTRACT_ADDRESS) ?? DEFAULT_RECORD_CONTRACT_ADDRESS;
 const PAYMASTER_URL = import.meta.env.VITE_PAYMASTER_URL;
-const ADMIN_NOTIFICATION_KEY = import.meta.env.VITE_ADMIN_NOTIFICATION_KEY;
 
 const vectors: Record<Direction, Point> = {
   up: { x: 0, y: -1 },
@@ -616,7 +618,7 @@ function App() {
     try {
       const response = await fetch(`${API_URL}/api/admin/notify-random`, {
         method: "POST",
-        headers: ADMIN_NOTIFICATION_KEY ? { "x-admin-key": ADMIN_NOTIFICATION_KEY } : undefined
+        credentials: "include"
       });
       const data = (await response.json().catch(() => null)) as { error?: string; sentCount?: number } | null;
 
@@ -716,15 +718,17 @@ function App() {
               <span>{streak?.streak ?? 0}</span>
               <small>{streakTimeLeft > 0 ? formatDuration(streakTimeLeft) : "ready"}</small>
             </button>
-            <button
-              className="admin-notify-button"
-              type="button"
-              onClick={sendAdminNotification}
-              title="Send random Base App notification"
-              aria-label="Send random Base App notification"
-            >
-              <Bell />
-            </button>
+            {streak?.isAdmin && (
+              <button
+                className="admin-notify-button"
+                type="button"
+                onClick={sendAdminNotification}
+                title="Send random Base App notification"
+                aria-label="Send random Base App notification"
+              >
+                <Bell />
+              </button>
+            )}
           </div>
         </div>
 

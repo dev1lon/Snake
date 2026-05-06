@@ -37,8 +37,8 @@ const port = Number(process.env.PORT ?? 4000);
 const frontendOrigin = process.env.FRONTEND_ORIGIN;
 const databaseUrl = process.env.DATABASE_URL;
 const baseAppUrl = process.env.BASE_APP_URL ?? (frontendOrigin ? normalizeOrigin(frontendOrigin) : "");
-const baseNotificationsApiKey = process.env.BASE_NOTIFICATIONS_API_KEY;
-const adminNotificationKey = process.env.ADMIN_NOTIFICATION_KEY;
+const baseNotificationsApiKey = process.env.BASE_API_KEY ?? process.env.BASE_NOTIFICATIONS_API_KEY;
+const adminWalletAddress = process.env.ADMIN_WALLET_ADDRESS?.toLowerCase();
 const leaderboard: LeaderboardEntry[] = [];
 const nonces = new Map<string, number>();
 const sessions = new Map<string, Session>();
@@ -265,13 +265,14 @@ async function saveStreak(record: StreakRecord) {
   );
 }
 
-function makeStreakStatus(record: StreakRecord | undefined, checkedInToday = false) {
+function makeStreakStatus(record: StreakRecord | undefined, checkedInToday = false, isAdmin = false) {
   if (!record) {
     return {
       authenticated: true,
       canCheckIn: true,
       checkedInToday,
       expiresAt: null,
+      isAdmin,
       nextCheckInAt: null,
       streak: 0
     };
@@ -286,9 +287,14 @@ function makeStreakStatus(record: StreakRecord | undefined, checkedInToday = fal
     canCheckIn: now >= nextCheckInAt,
     checkedInToday,
     expiresAt: new Date(expiresAt).toISOString(),
+    isAdmin,
     nextCheckInAt: new Date(nextCheckInAt).toISOString(),
     streak: record.streak
   };
+}
+
+function isAdminAddress(address: string | undefined) {
+  return Boolean(adminWalletAddress && address?.toLowerCase() === adminWalletAddress);
 }
 
 function applyCheckIn(record: StreakRecord | undefined, address: string) {
@@ -509,7 +515,7 @@ app.get("/api/streak", async (req, res) => {
 
   const record = await getStreak(session.address);
 
-  res.json(makeStreakStatus(record));
+  res.json(makeStreakStatus(record, false, isAdminAddress(session.address)));
 });
 
 app.post("/api/streak/check-in", async (req, res) => {
@@ -536,12 +542,14 @@ app.post("/api/streak/check-in", async (req, res) => {
     ).catch((error) => console.error("Failed to send streak notification", error));
   }
 
-  res.json(makeStreakStatus(next, checkedInToday));
+  res.json(makeStreakStatus(next, checkedInToday, isAdminAddress(session.address)));
 });
 
 app.post("/api/admin/notify-random", async (req, res) => {
-  if (!adminNotificationKey || req.header("x-admin-key") !== adminNotificationKey) {
-    res.status(403).json({ error: "Admin notifications are locked." });
+  const { session, token } = await getRequestSession(req.headers.cookie);
+
+  if (!token || !session || !isAdminAddress(session.address)) {
+    res.status(403).json({ error: "Admin wallet required." });
     return;
   }
 
