@@ -11,10 +11,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: FRONTEND_ORIGIN
-        fromService:
-          type: web
-          name: snake-frontend
-          property: host
+        value: https://base-snake.app
       - key: BASE_API_KEY
         sync: false
       - key: ADMIN_WALLET_ADDRESS
