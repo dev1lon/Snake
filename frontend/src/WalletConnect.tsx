@@ -1,5 +1,5 @@
 import { ChevronDown, LogOut, Wallet } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SiweMessage } from "siwe";
 import type { Connector } from "wagmi";
 import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
@@ -13,13 +13,23 @@ type WalletMode = "Smart Wallet" | "Standard Wallet";
 
 type AuthState = {
   address: string;
-  message: string;
   mode: WalletMode;
-  signature: string;
 };
 
-function createNonce() {
-  return window.crypto.randomUUID().replace(/-/g, "");
+type AuthResponse = {
+  address: string;
+  authenticated: boolean;
+  mode: WalletMode;
+};
+
+const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
+
+function normalizeApiUrl(value: string | undefined) {
+  if (!value) {
+    return "http://localhost:4000";
+  }
+
+  return value.startsWith("http") ? value : `https://${value}`;
 }
 
 function formatAddress(address?: string) {
@@ -46,6 +56,37 @@ function getAuthAccount(authResult: unknown) {
   return result.accounts?.[0];
 }
 
+async function getAuthNonce() {
+  const response = await fetch(`${API_URL}/api/auth/nonce`, {
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to create auth nonce");
+  }
+
+  const data = (await response.json()) as { nonce: string };
+  return data.nonce;
+}
+
+async function verifyAuthSession(message: string, signature: string, mode: WalletMode) {
+  const response = await fetch(`${API_URL}/api/auth/verify`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ message, mode, signature })
+  });
+
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "Wallet signature verification failed");
+  }
+
+  return (await response.json()) as AuthResponse;
+}
+
 export function WalletConnect() {
   const { address, isConnected } = useAccount();
   const { connectAsync, connectors, isPending } = useConnect();
@@ -64,6 +105,33 @@ export function WalletConnect() {
     [connectors]
   );
 
+  useEffect(() => {
+    const restoreSession = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/auth/me`, {
+          credentials: "include"
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const session = (await response.json()) as AuthResponse;
+
+        if (session.authenticated) {
+          setAuthState({
+            address: session.address,
+            mode: session.mode
+          });
+        }
+      } catch {
+        setAuthState(null);
+      }
+    };
+
+    void restoreSession();
+  }, []);
+
   const connectSmartWallet = async () => {
     if (!baseAccountConnector) {
       setError("Smart wallet is unavailable");
@@ -73,7 +141,7 @@ export function WalletConnect() {
     setError(null);
 
     try {
-      const nonce = createNonce();
+      const nonce = await getAuthNonce();
 
       await connectAsync({ connector: baseAccountConnector });
       const provider = (await baseAccountConnector.getProvider()) as BaseAccountProvider;
@@ -98,11 +166,11 @@ export function WalletConnect() {
         throw new Error("SIWE response is incomplete");
       }
 
+      const session = await verifyAuthSession(siwe.message, siwe.signature, "Smart Wallet");
+
       setAuthState({
-        address: account.address,
-        message: siwe.message,
-        mode: "Smart Wallet",
-        signature: siwe.signature
+        address: session.address,
+        mode: session.mode
       });
       setIsOpen(false);
     } catch (caught) {
@@ -119,6 +187,7 @@ export function WalletConnect() {
     setError(null);
 
     try {
+      const nonce = await getAuthNonce();
       const result = await connectAsync({ connector: standardConnector as Connector });
       const connectedAddress = result.accounts[0];
 
@@ -129,19 +198,18 @@ export function WalletConnect() {
       const message = new SiweMessage({
         domain: window.location.host,
         address: connectedAddress,
-        statement: "Sign in to Sneak.",
+        statement: "Sign in to Snake.",
         uri: window.location.origin,
         version: "1",
         chainId: result.chainId ?? base.id,
-        nonce: createNonce()
+        nonce
       }).prepareMessage();
       const signature = await signMessageAsync({ message });
+      const session = await verifyAuthSession(message, signature, "Standard Wallet");
 
       setAuthState({
-        address: connectedAddress,
-        message,
-        mode: "Standard Wallet",
-        signature
+        address: session.address,
+        mode: session.mode
       });
       setIsOpen(false);
     } catch (caught) {
@@ -150,6 +218,10 @@ export function WalletConnect() {
   };
 
   const disconnectWallet = () => {
+    void fetch(`${API_URL}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include"
+    });
     disconnect();
     setAuthState(null);
     setError(null);
@@ -158,7 +230,7 @@ export function WalletConnect() {
 
   return (
     <div className="wallet-widget">
-      {isConnected ? (
+      {isConnected || authState ? (
         <div className="wallet-connected">
           <span>{authState?.mode ?? "Wallet"}</span>
           <strong>{formatAddress(authState?.address ?? address)}</strong>

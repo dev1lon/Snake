@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: sneak-backend
+    name: snake-backend
     env: node
     rootDir: backend
     plan: free
@@ -13,11 +13,11 @@ services:
       - key: FRONTEND_ORIGIN
         fromService:
           type: web
-          name: sneak-frontend
+          name: snake-frontend
           property: host
 
   - type: web
-    name: sneak-frontend
+    name: snake-frontend
     env: static
     rootDir: frontend
     buildCommand: npm install --include=dev && npm run build
@@ -26,5 +26,5 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: sneak-backend
+          name: snake-backend
           property: host

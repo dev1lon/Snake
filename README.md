@@ -1,4 +1,4 @@
-# Sneak
+# Snake
 
 Classic phone-style snake game: the top half is the game board, the bottom half is a large directional control panel.
 

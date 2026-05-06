@@ -9,7 +9,7 @@ export const wagmiConfig = createConfig({
   chains: [base, baseSepolia],
   connectors: [
     baseAccount({
-      appName: "Sneak"
+      appName: "Snake"
     }),
     injected()
   ],

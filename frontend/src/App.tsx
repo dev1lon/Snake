@@ -380,7 +380,7 @@ function App() {
       <section className="game-area" aria-label="Snake game board">
         <div className="top-bar">
           <div>
-            <p className="eyebrow">Sneak</p>
+            <p className="eyebrow">Snake</p>
             <h1>{statusText}</h1>
           </div>
           <div className="stats" aria-label="Game stats">
