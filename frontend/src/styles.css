@@ -360,7 +360,7 @@ button {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-color: var(--line-strong);
-  border-radius: 8px;
+  border-radius: min(8px, 2%);
   background:
     linear-gradient(180deg, rgba(7, 22, 43, 0.98), rgba(5, 16, 30, 0.98)),
     #061325;

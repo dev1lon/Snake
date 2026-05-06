@@ -965,7 +965,7 @@ function drawCoin(
   cell: number,
   coinImage: HTMLImageElement | null
 ) {
-  const inset = cell * 0.04;
+  const inset = cell * 0.08;
   const x = food.x * cell + inset;
   const y = food.y * cell + inset;
   const size = cell - inset * 2;
