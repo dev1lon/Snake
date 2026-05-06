@@ -35,8 +35,10 @@ type NotificationResult = {
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
 const frontendOrigin = process.env.FRONTEND_ORIGIN;
+const defaultFrontendOrigin = "https://base-snake.app";
+const publicFrontendOrigin = frontendOrigin ? normalizeOrigin(frontendOrigin) : defaultFrontendOrigin;
 const databaseUrl = process.env.DATABASE_URL;
-const baseAppUrl = process.env.BASE_APP_URL ?? (frontendOrigin ? normalizeOrigin(frontendOrigin) : "");
+const baseAppUrl = process.env.BASE_APP_URL ?? publicFrontendOrigin;
 const baseNotificationsApiKey = process.env.BASE_API_KEY ?? process.env.BASE_NOTIFICATIONS_API_KEY;
 const adminWalletAddress = process.env.ADMIN_WALLET_ADDRESS?.toLowerCase();
 const leaderboard: LeaderboardEntry[] = [];
@@ -63,14 +65,14 @@ const notificationTexts = [
 ];
 
 function getAllowedOrigins() {
-  if (!frontendOrigin) {
-    return true;
-  }
+  const origins = new Set([
+    publicFrontendOrigin,
+    defaultFrontendOrigin,
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+  ]);
 
-  const origin = frontendOrigin.startsWith("http") ? frontendOrigin : `https://${frontendOrigin}`;
-  const host = origin.replace(/^https?:\/\//, "");
-
-  return [origin, `https://${host}`, `http://${host}`];
+  return Array.from(origins);
 }
 
 function normalizeOrigin(value: string) {
