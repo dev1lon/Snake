@@ -16,8 +16,10 @@
   --cyan: #37c2ff;
   --amber: #f4c542;
   --red: #f06258;
-  --controls-height: clamp(176px, 23dvh, 226px);
-  --mobile-controls-height: clamp(190px, 27dvh, 242px);
+  --controls-height: 252px;
+  --mobile-controls-height: 238px;
+  --dpad-cell: 64px;
+  --dpad-gap: 8px;
 }
 
 * {
@@ -332,7 +334,7 @@ canvas {
 
 .lower-grid {
   display: grid;
-  grid-template-columns: minmax(170px, 260px);
+  grid-template-columns: max-content;
   align-items: center;
   justify-content: center;
   min-height: 0;
@@ -340,9 +342,9 @@ canvas {
 
 .dpad {
   display: grid;
-  grid-template-columns: repeat(3, clamp(51px, 14.25vw, 72px));
-  grid-template-rows: repeat(4, clamp(36px, 8.8vw, 52px));
-  gap: 7px;
+  grid-template-columns: repeat(3, var(--dpad-cell));
+  grid-template-rows: repeat(4, var(--dpad-cell));
+  gap: var(--dpad-gap);
   justify-content: center;
 }
 
@@ -454,8 +456,8 @@ canvas {
   }
 
   .dpad {
-    grid-template-columns: repeat(3, clamp(55px, 17.1vw, 70px));
-    grid-template-rows: repeat(4, clamp(34px, 9.8vw, 48px));
+    --dpad-cell: clamp(48px, 15vw, 58px);
+    --dpad-gap: 7px;
   }
 }
 

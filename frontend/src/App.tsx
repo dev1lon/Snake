@@ -258,19 +258,15 @@ function App() {
     const handleKeyDown = (event: KeyboardEvent) => {
       const keyMap: Record<string, Direction | undefined> = {
         ArrowUp: "up",
-        w: "up",
-        W: "up",
         ArrowDown: "down",
-        s: "down",
-        S: "down",
         ArrowLeft: "left",
-        a: "left",
-        A: "left",
         ArrowRight: "right",
-        d: "right",
-        D: "right"
+        w: "up",
+        s: "down",
+        a: "left",
+        d: "right"
       };
-      const direction = keyMap[event.key];
+      const direction = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
 
       if (direction) {
         event.preventDefault();
@@ -280,6 +276,11 @@ function App() {
       if (event.key === " ") {
         event.preventDefault();
         dispatch({ type: game.status === "running" ? "pause" : "start" });
+      }
+
+      if (event.key === "Escape" && (game.status === "running" || game.status === "paused")) {
+        event.preventDefault();
+        dispatch({ type: "pause" });
       }
 
       if (event.key === "r" || event.key === "R") {
