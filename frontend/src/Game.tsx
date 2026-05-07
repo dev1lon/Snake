@@ -896,20 +896,6 @@ function drawGame(
 
   context.clearRect(0, 0, size, size);
 
-  // Subtle grid
-  context.strokeStyle = "rgba(255,255,255,0.03)";
-  context.lineWidth = 0.5;
-  for (let i = 1; i < BOARD_CELLS; i++) {
-    context.beginPath();
-    context.moveTo(i * cell, 0);
-    context.lineTo(i * cell, size);
-    context.stroke();
-    context.beginPath();
-    context.moveTo(0, i * cell);
-    context.lineTo(size, i * cell);
-    context.stroke();
-  }
-
   if (game.food) {
     drawCoin(context, game.food, cell, coinImage);
   }
@@ -926,7 +912,7 @@ function drawSnakeSegment(
   cell: number,
   isHead: boolean
 ) {
-  const pad = Math.ceil(cell * 0.075);
+  const pad = Math.max(1, Math.ceil(cell * 0.045));
   const x = part.x * cell + pad;
   const y = part.y * cell + pad;
   const w = cell - pad * 2;
