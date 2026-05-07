@@ -631,6 +631,30 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   transition: transform 0.12s ease, opacity 0.12s ease, box-shadow 0.12s ease;
 }
 
+.gs-end-exit {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: #8A95A5;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  transition: color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+}
+
+.gs-end-exit:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.04);
+}
+
+.gs-end-exit:active {
+  transform: scale(0.98);
+}
+
 .gs-end-save {
   background: linear-gradient(180deg, #0052FF 0%, #0036A8 100%);
   border: 1px solid rgba(0,229,255,0.42);

@@ -10,6 +10,7 @@ import {
   Save
 } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { encodeFunctionData, type Address, type Hex } from "viem";
 import { useAccount, useSendCalls, useSwitchChain } from "wagmi";
 import { base } from "wagmi/chains";
@@ -318,6 +319,7 @@ function reducer(state: GameState, action: Action): GameState {
 }
 
 function Game() {
+  const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const coinImageRef = useRef<HTMLImageElement | null>(null);
   const animationFrameRef = useRef(0);
@@ -594,6 +596,13 @@ function Game() {
   const playAgain = () => {
     setRecordStatus(null);
     dispatch({ type: "start" });
+    releaseFocus();
+  };
+
+  const exitGame = () => {
+    setRecordStatus(null);
+    dispatch({ type: "reset" });
+    navigate("/");
     releaseFocus();
   };
 
@@ -879,6 +888,9 @@ function Game() {
               <button className="gs-end-play" type="button" onClick={playAgain}>
                 <Play />
                 <span>Play Again</span>
+              </button>
+              <button className="gs-end-exit" type="button" onClick={exitGame}>
+                Exit
               </button>
               {recordStatus && <small>{recordStatus}</small>}
             </div>
