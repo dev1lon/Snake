@@ -14,7 +14,7 @@ import { useNavigate } from "react-router-dom";
 import { encodeFunctionData, type Address, type Hex } from "viem";
 import { useAccount, useCapabilities, useSendCalls, useSwitchChain, useWriteContract } from "wagmi";
 import { base } from "wagmi/chains";
-import { WalletConnect } from "./WalletConnect";
+import { authHeaders, WalletConnect } from "./WalletConnect";
 import { snakeRecordsAbi } from "./contracts";
 
 type Point = {
@@ -188,6 +188,8 @@ function getHexEnv(value: string | undefined): Hex | null {
 }
 
 function getTransactionCapabilities() {
+  // dataSuffix is NOT a standard EIP-5792 capability — wallets ignore it.
+  // For sendCalls we append BUILDER_CODE_SUFFIX manually to call data.
   return {
     ...(PAYMASTER_URL
       ? {
@@ -195,12 +197,12 @@ function getTransactionCapabilities() {
             url: PAYMASTER_URL
           }
         }
-      : {}),
-    dataSuffix: {
-      optional: true,
-      value: BUILDER_CODE_SUFFIX
-    }
+      : {})
   };
+}
+
+function withBuilderSuffix(data: Hex): Hex {
+  return `${data}${BUILDER_CODE_SUFFIX.slice(2)}` as Hex;
 }
 
 type WalletCapabilities = {
@@ -412,7 +414,8 @@ function Game() {
 
       try {
         const response = await fetch(`${API_URL}/api/streak`, {
-          credentials: "include"
+          credentials: "include",
+          headers: authHeaders()
         });
 
         if (!response.ok) {
@@ -644,15 +647,14 @@ function Game() {
     await switchChainAsync({ chainId: base.id });
 
     if (shouldUseBatchCalls) {
-      const data = encodeFunctionData({
+      const data = withBuilderSuffix(encodeFunctionData({
         abi: snakeRecordsAbi,
         functionName: "checkIn"
-      });
+      }));
       const result = await sendCallsAsync({
         calls: [{ data, to: RECORD_CONTRACT_ADDRESS }],
         capabilities: getTransactionCapabilities(),
-        chainId: base.id,
-        connector
+        chainId: base.id
       });
 
       return result.id;
@@ -663,7 +665,6 @@ function Game() {
       abi: snakeRecordsAbi,
       functionName: "checkIn",
       chainId: base.id,
-      connector,
       dataSuffix: BUILDER_CODE_SUFFIX
     });
   };
@@ -682,16 +683,15 @@ function Game() {
     await switchChainAsync({ chainId: base.id });
 
     if (shouldUseBatchCalls) {
-      const data = encodeFunctionData({
+      const data = withBuilderSuffix(encodeFunctionData({
         abi: snakeRecordsAbi,
         functionName: "recordRun",
         args
-      });
+      }));
       const result = await sendCallsAsync({
         calls: [{ data, to: RECORD_CONTRACT_ADDRESS }],
         capabilities: getTransactionCapabilities(),
-        chainId: base.id,
-        connector
+        chainId: base.id
       });
 
       return result.id;
@@ -703,7 +703,6 @@ function Game() {
       functionName: "recordRun",
       args,
       chainId: base.id,
-      connector,
       dataSuffix: BUILDER_CODE_SUFFIX
     });
   };
@@ -719,7 +718,8 @@ function Game() {
 
       const response = await fetch(`${API_URL}/api/streak/check-in`, {
         method: "POST",
-        credentials: "include"
+        credentials: "include",
+        headers: authHeaders()
       });
       const data = (await response.json().catch(() => null)) as (StreakState & { error?: string }) | null;
 
@@ -742,7 +742,8 @@ function Game() {
     try {
       const response = await fetch(`${API_URL}/api/admin/notify-random`, {
         method: "POST",
-        credentials: "include"
+        credentials: "include",
+        headers: authHeaders()
       });
       const data = (await response.json().catch(() => null)) as { error?: string; sentCount?: number } | null;
 
@@ -779,7 +780,8 @@ function Game() {
 
       void fetch(`${API_URL}/api/player/record`, {
         method: "POST",
-        credentials: "include"
+        credentials: "include",
+        headers: authHeaders()
       }).catch(() => {});
     } catch (caught) {
       setRecordStatus(caught instanceof Error ? caught.message : "Record transaction failed");

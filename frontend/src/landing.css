@@ -2,7 +2,7 @@
 
 /* ── Root ───────────────────────────────────────────────────── */
 .lnd-root {
-  min-height: 100dvh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background-color: #02040a;
@@ -13,6 +13,8 @@
   color: #fff;
   font-family: 'Inter', sans-serif;
   overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   line-height: 1.5;
   position: relative;
 }
@@ -49,24 +51,27 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 0 24px 0;
+  gap: 8px;
+  padding: 14px 0 16px 0;
   flex-shrink: 0;
 }
 
 .lnd-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: clamp(0.95rem, 4vw, 1.1rem);
   letter-spacing: -0.02em;
   color: #fff;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .lnd-logo img {
-  width: 26px;
-  height: 26px;
+  width: clamp(22px, 5.5vw, 26px);
+  height: clamp(22px, 5.5vw, 26px);
   object-fit: contain;
   flex-shrink: 0;
   border-radius: 50%;
@@ -108,7 +113,16 @@
 }
 
 /* ── WalletConnect overrides for landing ────────────────────── */
-.lnd-wallet-wrap { position: relative; }
+.lnd-wallet-wrap { position: relative; flex-shrink: 1; min-width: 0; }
+
+/* Vertical text stack inside connected wallet button (mode on top, address below) */
+.wallet-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+  min-width: 0;
+}
 
 .lnd-wallet-wrap .wallet-widget { width: auto; }
 
@@ -225,11 +239,11 @@
 /* ── Title ──────────────────────────────────────────────────── */
 .lnd-h1 {
   font-family: 'Space Grotesk', sans-serif;
-  font-size: clamp(2.6rem, 11vw, 3.5rem);
+  font-size: clamp(2rem, 9vw, 3.5rem);
   line-height: 1;
   font-weight: 700;
   letter-spacing: -0.04em;
-  margin: 0 0 10px 0;
+  margin: 0 0 8px 0;
   background: linear-gradient(180deg, #ffffff 0%, #A0AABF 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -238,8 +252,8 @@
 
 .lnd-subtitle {
   color: #8A95A5;
-  font-size: 0.88rem;
-  margin: 0 0 14px 0;
+  font-size: clamp(0.78rem, 2.6vw, 0.95rem);
+  margin: 0 0 12px 0;
   padding: 0 4px;
 }
 
@@ -249,8 +263,8 @@
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  margin-top: 12px;
-  padding: 14px 28px;
+  margin-top: 8px;
+  padding: clamp(10px, 2.5vw, 14px) clamp(20px, 6vw, 28px);
   background: rgba(0, 229, 255, 0.04);
   border: 1px solid rgba(0, 229, 255, 0.12);
   border-radius: 12px;
@@ -258,7 +272,7 @@
 
 .lnd-players-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 1.6rem;
+  font-size: clamp(1.25rem, 4.5vw, 1.6rem);
   font-weight: 700;
   color: #00E5FF;
   line-height: 1;
@@ -266,7 +280,7 @@
 
 .lnd-players-label {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   color: #8A95A5;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -275,7 +289,7 @@
 /* ── 3D Scene ───────────────────────────────────────────────── */
 .lnd-scene {
   perspective: 1000px;
-  height: clamp(200px, 36vh, 270px);
+  height: clamp(160px, 28vh, 270px);
   width: 100%;
   display: flex;
   justify-content: center;
@@ -313,8 +327,8 @@
 }
 
 .lnd-tile-center {
-  width: clamp(160px, 44vw, 210px);
-  height: clamp(160px, 44vw, 210px);
+  width: clamp(130px, 38vw, 210px);
+  height: clamp(130px, 38vw, 210px);
   z-index: 3;
   --lnd-edge: #0052FF;
   border-top: 1px solid rgba(0, 82, 255, 0.5);
@@ -325,16 +339,16 @@
 }
 
 .lnd-tile-left {
-  width: clamp(80px, 22vw, 110px);
-  height: clamp(80px, 22vw, 110px);
+  width: clamp(70px, 20vw, 110px);
+  height: clamp(70px, 20vw, 110px);
   z-index: 2;
   --lnd-edge: #7000FF;
   animation: lnd-float-left 7s ease-in-out infinite;
 }
 
 .lnd-tile-right {
-  width: clamp(80px, 22vw, 110px);
-  height: clamp(80px, 22vw, 110px);
+  width: clamp(70px, 20vw, 110px);
+  height: clamp(70px, 20vw, 110px);
   z-index: 2;
   --lnd-edge: #00E5FF;
   animation: lnd-float-right 5s ease-in-out infinite;
@@ -382,7 +396,7 @@
 .lnd-cta {
   position: sticky;
   bottom: 0;
-  padding: 12px 0 max(20px, env(safe-area-inset-bottom, 20px));
+  padding: 10px 0 max(14px, env(safe-area-inset-bottom, 14px));
   background: linear-gradient(to top, #02040a 60%, transparent);
   flex-shrink: 0;
 }
@@ -392,10 +406,10 @@
   background: linear-gradient(180deg, #0052FF 0%, #0036A8 100%);
   color: #fff;
   border: none;
-  padding: 18px 24px;
+  padding: clamp(14px, 4vw, 18px) 24px;
   border-radius: 14px;
   font-family: 'Space Grotesk', sans-serif;
-  font-size: 1.2rem;
+  font-size: clamp(1rem, 3.5vw, 1.2rem);
   font-weight: 700;
   letter-spacing: 0.04em;
   cursor: pointer;

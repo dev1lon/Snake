@@ -5,6 +5,7 @@ import type { Address } from "viem";
 import type { Connector } from "wagmi";
 import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
 import { base } from "wagmi/chains";
+import { useBasename } from "./useBasename";
 
 type WalletMode = "Smart Wallet" | "Standard Wallet";
 
@@ -17,7 +18,32 @@ type AuthResponse = {
   address: string;
   authenticated: boolean;
   mode: WalletMode;
+  token?: string;
 };
+
+const AUTH_STORAGE_KEY = "snake.authToken";
+
+export function getStoredAuthToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredAuthToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem(AUTH_STORAGE_KEY, token);
+    else localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function authHeaders(): Record<string, string> {
+  const token = getStoredAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 
@@ -77,7 +103,11 @@ async function verifyAuthSession(message: string, signature: string, mode: Walle
     throw new Error(data?.error ?? "Wallet signature verification failed");
   }
 
-  return (await response.json()) as AuthResponse;
+  const data = (await response.json()) as AuthResponse;
+  if (data.token) {
+    setStoredAuthToken(data.token);
+  }
+  return data;
 }
 
 export function WalletConnect() {
@@ -109,7 +139,8 @@ export function WalletConnect() {
 
       try {
         const response = await fetch(`${API_URL}/api/auth/me`, {
-          credentials: "include"
+          credentials: "include",
+          headers: authHeaders()
         });
 
         if (response.ok) {
@@ -214,20 +245,28 @@ export function WalletConnect() {
   const disconnectWallet = () => {
     void fetch(`${API_URL}/api/auth/logout`, {
       method: "POST",
-      credentials: "include"
+      credentials: "include",
+      headers: authHeaders()
     });
+    setStoredAuthToken(null);
     disconnect();
     setAuthState(null);
     setError(null);
     setIsOpen(false);
   };
 
+  const displayAddress = authState?.address ?? address;
+  const basename = useBasename(displayAddress as Address | undefined);
+  const displayName = basename ?? formatAddress(displayAddress);
+
   return (
     <div className="wallet-widget">
       {isConnected || authState ? (
         <div className="wallet-connected">
-          <span>{authState?.mode ?? "Wallet"}</span>
-          <strong>{formatAddress(authState?.address ?? address)}</strong>
+          <div className="wallet-info">
+            <span>{authState?.mode ?? "Wallet"}</span>
+            <strong title={displayAddress}>{displayName}</strong>
+          </div>
           <button type="button" title="Disconnect wallet" aria-label="Disconnect wallet" onClick={disconnectWallet}>
             <LogOut />
           </button>

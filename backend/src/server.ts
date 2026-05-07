@@ -112,6 +112,16 @@ function getSessionToken(cookieHeader: string | undefined) {
   return parseCookies(cookieHeader).get(sessionCookieName);
 }
 
+// Authorization: Bearer <token> takes priority over cookie because in-app
+// browsers (Base App webview, iOS Safari) often block third-party cookies.
+function getAuthToken(req: express.Request): string | undefined {
+  const auth = req.headers.authorization;
+  if (auth && auth.startsWith("Bearer ")) {
+    return auth.slice(7);
+  }
+  return getSessionToken(req.headers.cookie);
+}
+
 function makeSessionCookie(token: string) {
   const secure = process.env.NODE_ENV === "production";
   const sameSite = secure ? "None" : "Lax";
@@ -227,8 +237,8 @@ async function deleteSession(token: string) {
   await pool.query("DELETE FROM auth_sessions WHERE token = $1", [token]);
 }
 
-async function getRequestSession(cookieHeader: string | undefined) {
-  const token = getSessionToken(cookieHeader);
+async function getRequestSession(req: express.Request) {
+  const token = getAuthToken(req);
   const session = token ? await getSession(token) : undefined;
 
   return { session, token };
@@ -439,7 +449,7 @@ app.get("/api/auth/nonce", (_req, res) => {
 });
 
 app.get("/api/auth/me", async (req, res) => {
-  const token = getSessionToken(req.headers.cookie);
+  const token = getAuthToken(req);
   const session = token ? await getSession(token) : undefined;
 
   if (!token || !session) {
@@ -456,7 +466,7 @@ app.get("/api/auth/me", async (req, res) => {
 });
 
 app.post("/api/auth/logout", async (req, res) => {
-  const token = getSessionToken(req.headers.cookie);
+  const token = getAuthToken(req);
 
   if (token) {
     await deleteSession(token);
@@ -521,12 +531,15 @@ app.post("/api/auth/verify", async (req, res) => {
   res.json({
     authenticated: true,
     address: session.address,
-    mode: session.mode
+    mode: session.mode,
+    // Return token so the client can store it in localStorage and send via
+    // Authorization header — survives third-party cookie blocking in webviews.
+    token
   });
 });
 
 app.get("/api/streak", async (req, res) => {
-  const { session, token } = await getRequestSession(req.headers.cookie);
+  const { session, token } = await getRequestSession(req);
 
   if (!token || !session) {
     res.status(401).json({ authenticated: false });
@@ -539,7 +552,7 @@ app.get("/api/streak", async (req, res) => {
 });
 
 app.post("/api/streak/check-in", async (req, res) => {
-  const { session, token } = await getRequestSession(req.headers.cookie);
+  const { session, token } = await getRequestSession(req);
 
   if (!token || !session) {
     res.status(401).json({ error: "Connect wallet to check in." });
@@ -566,7 +579,7 @@ app.post("/api/streak/check-in", async (req, res) => {
 });
 
 app.post("/api/admin/notify-random", async (req, res) => {
-  const { session, token } = await getRequestSession(req.headers.cookie);
+  const { session, token } = await getRequestSession(req);
 
   if (!token || !session || !isAdminAddress(session.address)) {
     res.status(403).json({ error: "Admin wallet required." });
@@ -630,7 +643,7 @@ app.post("/api/leaderboard", (req, res) => {
 });
 
 app.post("/api/player/record", async (req, res) => {
-  const { session } = await getRequestSession(req.headers.cookie);
+  const { session } = await getRequestSession(req);
 
   if (!session) {
     res.status(401).json({ error: "Not authenticated." });

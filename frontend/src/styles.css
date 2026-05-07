@@ -402,7 +402,14 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 .gs-dpad-restart svg { width: clamp(20px, 3.2dvh, 22px); height: clamp(20px, 3.2dvh, 22px); }
 
 /* ── WalletConnect overrides for game screen — same style as landing ── */
-.gs-header .wallet-widget { width: auto; position: relative; }
+.gs-header .wallet-widget { width: auto; position: relative; min-width: 0; flex-shrink: 1; }
+.gs-header .wallet-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+  min-width: 0;
+}
 
 .gs-header .wallet-trigger {
   background: rgba(0, 82, 255, 0.1);
