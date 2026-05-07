@@ -378,16 +378,78 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 .gs-dpad-restart:active { transform: scale(0.95); }
 .gs-dpad-restart svg { width: 22px; height: 22px; }
 
-/* ── WalletConnect overrides for game screen ────────────────── */
-.gs-header .wallet-widget {
-  width: auto;
+/* ── WalletConnect overrides for game screen — same style as landing ── */
+.gs-header .wallet-widget { width: auto; position: relative; }
+
+.gs-header .wallet-trigger {
+  background: rgba(0, 82, 255, 0.1);
+  border: 1px solid rgba(0, 82, 255, 0.4);
+  border-radius: 8px;
+  height: auto;
+  padding: 7px 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #00E5FF;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  box-shadow: 0 0 10px rgba(0, 82, 255, 0.2);
+  white-space: nowrap;
 }
+.gs-header .wallet-trigger::before {
+  content: '';
+  display: block;
+  width: 5px;
+  height: 5px;
+  background: #00E5FF;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #00E5FF;
+  flex-shrink: 0;
+}
+.gs-header .wallet-trigger span { font-size: 0.65rem; color: #00E5FF; }
+.gs-header .wallet-trigger svg { width: 12px; height: 12px; color: #00E5FF; }
+
+.gs-header .wallet-menu {
+  position: absolute;
+  right: 0;
+  left: auto;
+  top: calc(100% + 8px);
+  min-width: 180px;
+  background: linear-gradient(145deg, rgba(16,24,48,0.95), rgba(6,9,18,0.98));
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 4px;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+  gap: 2px;
+  z-index: 50;
+}
+.gs-header .wallet-menu button {
+  height: 44px;
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #fff;
+}
+.gs-header .wallet-menu button:first-child { color: #00E5FF; }
+.gs-header .wallet-menu button:hover:not(:disabled) {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.1);
+}
+.gs-header .wallet-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .gs-header .wallet-connected {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(0, 82, 255, 0.1);
+  border: 1px solid rgba(0, 82, 255, 0.4);
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 7px 11px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -395,53 +457,27 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 }
 .gs-header .wallet-connected span {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.5rem;
+  font-size: 0.55rem;
   color: #8A95A5;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 .gs-header .wallet-connected strong {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.625rem;
-  color: #fff;
+  font-size: 0.65rem;
   font-weight: 700;
+  color: #00E5FF;
 }
 .gs-header .wallet-connected button {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 22px;
+  height: 22px;
   background: rgba(255,255,255,0.06);
   border: 0;
-  color: #00E5FF;
+  border-radius: 6px;
+  color: #8A95A5;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .gs-header .wallet-connected button svg { width: 12px; height: 12px; }
-
-.gs-header .wallet-trigger {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
-  padding: 6px 10px;
-  height: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.65rem;
-  color: #8A95A5;
-}
-.gs-header .wallet-trigger svg { width: 14px; height: 14px; }
-.gs-header .wallet-trigger span { font-size: 0.65rem; }
-
-.gs-header .wallet-menu {
-  right: 0;
-  left: auto;
-  font-size: 0.75rem;
-}
-.gs-header .wallet-menu button { height: 34px; font-size: 0.75rem; }
-
-.gs-header .wallet-error {
-  font-size: 0.7rem;
-}
+.gs-header .wallet-error { font-size: 0.65rem; }
