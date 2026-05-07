@@ -1,5 +1,5 @@
 import { ChevronDown, LogOut, Wallet } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SiweMessage } from "siwe";
 import type { Connector } from "wagmi";
 import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
@@ -100,13 +100,15 @@ async function verifyAuthSession(message: string, signature: string, mode: Walle
 }
 
 export function WalletConnect() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, connector: activeConnector } = useAccount();
   const { connectAsync, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
   const { signMessageAsync } = useSignMessage();
   const [isOpen, setIsOpen] = useState(false);
   const [authState, setAuthState] = useState<AuthState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const autoAuthRef = useRef(false);
 
   const baseAccountConnector = useMemo(
     () => connectors.find((connector) => connector.id === "baseAccount"),
@@ -120,6 +122,7 @@ export function WalletConnect() {
   useEffect(() => {
     const restoreSession = async () => {
       if (!isConnected && !address) {
+        setSessionChecked(true);
         return;
       }
 
@@ -128,25 +131,63 @@ export function WalletConnect() {
           credentials: "include"
         });
 
-        if (!response.ok) {
-          return;
-        }
-
-        const session = (await response.json()) as AuthResponse;
-
-        if (session.authenticated) {
-          setAuthState({
-            address: session.address,
-            mode: session.mode
-          });
+        if (response.ok) {
+          const session = (await response.json()) as AuthResponse;
+          if (session.authenticated) {
+            setAuthState({
+              address: session.address,
+              mode: session.mode
+            });
+          }
         }
       } catch {
         setAuthState(null);
+      } finally {
+        setSessionChecked(true);
       }
     };
 
     void restoreSession();
   }, [address, isConnected]);
+
+  // Inner step: SIWE handshake on an already-connected Smart Wallet.
+  // Inside Base App the wallet auto-signs SIWE silently (no popup).
+  const authenticateSmartWalletSession = async (silent = false) => {
+    if (!baseAccountConnector) {
+      throw new Error("Smart wallet is unavailable");
+    }
+
+    const nonce = await getAuthNonce();
+    const provider = (await baseAccountConnector.getProvider()) as BaseAccountProvider;
+    const authResult = await provider.request({
+      method: "wallet_connect",
+      params: [
+        {
+          version: "1",
+          capabilities: {
+            signInWithEthereum: {
+              nonce,
+              chainId: "0x2105"
+            }
+          }
+        }
+      ]
+    });
+    const account = getAuthAccount(authResult);
+    const siwe = account?.capabilities?.signInWithEthereum;
+
+    if (!account?.address || !siwe?.message || !siwe.signature) {
+      throw new Error("SIWE response is incomplete");
+    }
+
+    const session = await verifyAuthSession(siwe.message, siwe.signature, "Smart Wallet");
+    setAuthState({
+      address: session.address,
+      mode: session.mode
+    });
+    setIsOpen(false);
+    void silent; // eslint placation; silent is used by callers via try/catch
+  };
 
   const connectSmartWallet = async (showError = true) => {
     if (!baseAccountConnector) {
@@ -162,42 +203,27 @@ export function WalletConnect() {
 
     try {
       await connectAsync({ connector: baseAccountConnector });
-      const nonce = await getAuthNonce();
-      const provider = (await baseAccountConnector.getProvider()) as BaseAccountProvider;
-      const authResult = await provider.request({
-        method: "wallet_connect",
-        params: [
-          {
-            version: "1",
-            capabilities: {
-              signInWithEthereum: {
-                nonce,
-                chainId: "0x2105"
-              }
-            }
-          }
-        ]
-      });
-      const account = getAuthAccount(authResult);
-      const siwe = account?.capabilities?.signInWithEthereum;
-
-      if (!account?.address || !siwe?.message || !siwe.signature) {
-        throw new Error("SIWE response is incomplete");
-      }
-
-      const session = await verifyAuthSession(siwe.message, siwe.signature, "Smart Wallet");
-
-      setAuthState({
-        address: session.address,
-        mode: session.mode
-      });
-      setIsOpen(false);
+      await authenticateSmartWalletSession();
     } catch (caught) {
       if (showError) {
         setError(getFriendlyWalletError(caught));
       }
     }
   };
+
+  // Auto-authenticate Smart Wallet after wagmi reconnect restores the session.
+  // Inside Base App mini-app context this is silent (no signature prompt).
+  useEffect(() => {
+    if (autoAuthRef.current) return;
+    if (!sessionChecked) return;
+    if (!isConnected || !address || authState) return;
+    if (activeConnector?.id !== "baseAccount") return;
+
+    autoAuthRef.current = true;
+    void authenticateSmartWalletSession(true).catch(() => {
+      autoAuthRef.current = false;
+    });
+  }, [sessionChecked, isConnected, address, authState, activeConnector]);
 
   const connectStandardWallet = async () => {
     if (!standardConnector) {
