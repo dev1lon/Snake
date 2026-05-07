@@ -12,7 +12,7 @@ import {
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { encodeFunctionData, type Address, type Hex } from "viem";
-import { useAccount, useSendCalls, useSwitchChain } from "wagmi";
+import { useAccount, useCapabilities, useSendCalls, useSwitchChain, useWriteContract } from "wagmi";
 import { base } from "wagmi/chains";
 import { WalletConnect } from "./WalletConnect";
 import { snakeRecordsAbi } from "./contracts";
@@ -201,10 +201,25 @@ function getTransactionCapabilities() {
   };
 }
 
-// Append the builder code to calldata so dashboard.base.org attributes the tx.
-// wagmiConfig.dataSuffix only applies to sendTransaction, NOT sendCallsAsync.
-function withBuilderSuffix(data: Hex): Hex {
-  return `${data}${BUILDER_CODE_SUFFIX.slice(2)}` as Hex;
+type WalletCapabilities = {
+  atomic?: {
+    status?: string;
+  };
+};
+
+function getBaseCapabilities(capabilities: unknown): WalletCapabilities | undefined {
+  if (!capabilities || typeof capabilities !== "object") {
+    return undefined;
+  }
+
+  const directCapabilities = capabilities as WalletCapabilities;
+  const byChain = capabilities as Record<number, WalletCapabilities | undefined>;
+
+  return byChain[base.id] ?? directCapabilities;
+}
+
+function supportsBatching(capabilities: WalletCapabilities | undefined) {
+  return capabilities?.atomic?.status === "ready" || capabilities?.atomic?.status === "supported";
 }
 
 function ensureFoodOnState(state: GameState): GameState {
@@ -340,14 +355,23 @@ function Game() {
   const [bestRunCells, setBestRunCells] = useState(() => getStoredBestRunCells());
   const { address, connector, isConnected } = useAccount();
   const { sendCallsAsync, isPending: isSavingRecord } = useSendCalls();
+  const { writeContractAsync, isPending: isWritingContract } = useWriteContract();
+  const { data: walletCapabilities } = useCapabilities({
+    chainId: base.id,
+    query: {
+      enabled: Boolean(address && connector)
+    }
+  });
   const { switchChainAsync } = useSwitchChain();
 
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
   const gameEnded = game.status === "lost" || game.status === "won";
   const currentRunCells = Math.max(0, game.snake.length - START_LENGTH);
   const shownBestRunCells = Math.max(bestRunCells, currentRunCells);
+  const isOnchainPending = isSavingRecord || isWritingContract;
+  const shouldUseBatchCalls = supportsBatching(getBaseCapabilities(walletCapabilities));
   const streakUi = getStreakUi(streak, nowMs);
-  const canCheckIn = Boolean(streak?.canCheckIn && address && connector && !isCheckingIn);
+  const canCheckIn = Boolean(streak?.canCheckIn && address && connector && !isCheckingIn && !isOnchainPending);
 
   const queueDirection = (direction: Direction) => {
     const liveGame = gameRef.current;
@@ -606,29 +630,89 @@ function Game() {
     releaseFocus();
   };
 
+  const sendCheckInTransaction = async () => {
+    if (!RECORD_CONTRACT_ADDRESS) {
+      return null;
+    }
+
+    if (!address || !connector) {
+      throw new Error("Connect wallet first");
+    }
+
+    await switchChainAsync({ chainId: base.id });
+
+    if (shouldUseBatchCalls) {
+      const data = encodeFunctionData({
+        abi: snakeRecordsAbi,
+        functionName: "checkIn"
+      });
+      const result = await sendCallsAsync({
+        calls: [{ data, to: RECORD_CONTRACT_ADDRESS }],
+        capabilities: getTransactionCapabilities(),
+        chainId: base.id,
+        connector
+      });
+
+      return result.id;
+    }
+
+    return writeContractAsync({
+      address: RECORD_CONTRACT_ADDRESS,
+      abi: snakeRecordsAbi,
+      functionName: "checkIn",
+      chainId: base.id,
+      connector,
+      dataSuffix: BUILDER_CODE_SUFFIX
+    });
+  };
+
+  const sendRecordRunTransaction = async () => {
+    if (!RECORD_CONTRACT_ADDRESS) {
+      throw new Error("Set VITE_RECORD_CONTRACT_ADDRESS after deploy");
+    }
+
+    if (!address || !connector) {
+      throw new Error("Connect wallet first");
+    }
+
+    const args = [BigInt(game.score), game.snake.length, game.status === "won", BigInt(game.moves)] as const;
+
+    await switchChainAsync({ chainId: base.id });
+
+    if (shouldUseBatchCalls) {
+      const data = encodeFunctionData({
+        abi: snakeRecordsAbi,
+        functionName: "recordRun",
+        args
+      });
+      const result = await sendCallsAsync({
+        calls: [{ data, to: RECORD_CONTRACT_ADDRESS }],
+        capabilities: getTransactionCapabilities(),
+        chainId: base.id,
+        connector
+      });
+
+      return result.id;
+    }
+
+    return writeContractAsync({
+      address: RECORD_CONTRACT_ADDRESS,
+      abi: snakeRecordsAbi,
+      functionName: "recordRun",
+      args,
+      chainId: base.id,
+      connector,
+      dataSuffix: BUILDER_CODE_SUFFIX
+    });
+  };
+
   const checkIn = async () => {
     setStreakStatus(null);
     setIsCheckingIn(true);
 
     try {
       if (RECORD_CONTRACT_ADDRESS && (!streak || streak.canCheckIn)) {
-        if (!address || !connector) {
-          throw new Error("Connect wallet first");
-        }
-
-        await switchChainAsync({ chainId: base.id });
-
-        const checkInData = withBuilderSuffix(encodeFunctionData({
-          abi: snakeRecordsAbi,
-          functionName: "checkIn"
-        }));
-        await sendCallsAsync({
-          calls: [{ data: checkInData, to: RECORD_CONTRACT_ADDRESS }],
-          capabilities: getTransactionCapabilities(),
-          chainId: base.id,
-          connector,
-          experimental_fallback: true
-        });
+        await sendCheckInTransaction();
       }
 
       const response = await fetch(`${API_URL}/api/streak/check-in`, {
@@ -687,22 +771,9 @@ function Game() {
         throw new Error("Connect wallet first");
       }
 
-      await switchChainAsync({ chainId: base.id });
+      const txId = await sendRecordRunTransaction();
 
-      const recordData = withBuilderSuffix(encodeFunctionData({
-        abi: snakeRecordsAbi,
-        functionName: "recordRun",
-        args: [BigInt(game.score), game.snake.length, game.status === "won", BigInt(game.moves)]
-      }));
-      const result = await sendCallsAsync({
-        calls: [{ data: recordData, to: RECORD_CONTRACT_ADDRESS }],
-        capabilities: getTransactionCapabilities(),
-        chainId: base.id,
-        connector,
-        experimental_fallback: true
-      });
-
-      setRecordStatus(`Record sent ${result.id.slice(0, 10)}...`);
+      setRecordStatus(`Record sent ${txId.slice(0, 10)}...`);
 
       void fetch(`${API_URL}/api/player/record`, {
         method: "POST",
@@ -881,9 +952,9 @@ function Game() {
             </div>
 
             <div className="gs-end-actions">
-              <button className="gs-end-save" type="button" disabled={isSavingRecord} onClick={saveRecord}>
+              <button className="gs-end-save" type="button" disabled={isOnchainPending} onClick={saveRecord}>
                 <Save />
-                <span>{isSavingRecord ? "Saving..." : "Save Record"}</span>
+                <span>{isOnchainPending ? "Saving..." : "Save Record"}</span>
               </button>
               <button className="gs-end-play" type="button" onClick={playAgain}>
                 <Play />
