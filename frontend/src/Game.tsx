@@ -191,12 +191,14 @@ function getTransactionCapabilities() {
             url: PAYMASTER_URL
           }
         }
-      : {}),
-    dataSuffix: {
-      optional: true,
-      value: BUILDER_CODE_SUFFIX
-    }
+      : {})
   };
+}
+
+// Append the builder code to calldata so dashboard.base.org attributes the tx.
+// wagmiConfig.dataSuffix only applies to sendTransaction, NOT sendCallsAsync.
+function withBuilderSuffix(data: Hex): Hex {
+  return `${data}${BUILDER_CODE_SUFFIX.slice(2)}` as Hex;
 }
 
 function ensureFoodOnState(state: GameState): GameState {
@@ -581,17 +583,12 @@ function Game() {
 
         await switchChainAsync({ chainId: base.id });
 
-        const data = encodeFunctionData({
+        const checkInData = withBuilderSuffix(encodeFunctionData({
           abi: snakeRecordsAbi,
           functionName: "checkIn"
-        });
+        }));
         await sendCallsAsync({
-          calls: [
-            {
-              data,
-              to: RECORD_CONTRACT_ADDRESS
-            }
-          ],
+          calls: [{ data: checkInData, to: RECORD_CONTRACT_ADDRESS }],
           capabilities: getTransactionCapabilities(),
           chainId: base.id,
           connector,
@@ -657,18 +654,13 @@ function Game() {
 
       await switchChainAsync({ chainId: base.id });
 
-      const data = encodeFunctionData({
+      const recordData = withBuilderSuffix(encodeFunctionData({
         abi: snakeRecordsAbi,
         functionName: "recordRun",
         args: [BigInt(game.score), game.snake.length, game.status === "won", BigInt(game.moves)]
-      });
+      }));
       const result = await sendCallsAsync({
-        calls: [
-          {
-            data,
-            to: RECORD_CONTRACT_ADDRESS
-          }
-        ],
+        calls: [{ data: recordData, to: RECORD_CONTRACT_ADDRESS }],
         capabilities: getTransactionCapabilities(),
         chainId: base.id,
         connector,
