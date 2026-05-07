@@ -3,18 +3,19 @@
 
 html, body, #root {
   width: 100%;
-  height: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  background-color: #02040a;
+  background-color: #060b14;
   background-image:
-    radial-gradient(circle at 50% -18%, rgba(0, 82, 255, 0.28) 0%, transparent 54%),
-    radial-gradient(circle at 100% 46%, rgba(0, 229, 255, 0.1) 0%, transparent 42%),
-    radial-gradient(circle at 0% 82%, rgba(112, 0, 255, 0.16) 0%, transparent 44%);
+    radial-gradient(circle at 50% -18%, rgba(0, 82, 255, 0.34) 0%, transparent 54%),
+    radial-gradient(circle at 100% 46%, rgba(0, 229, 255, 0.14) 0%, transparent 42%),
+    radial-gradient(circle at 0% 82%, rgba(112, 0, 255, 0.2) 0%, transparent 44%);
   color: #fff;
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   overscroll-behavior: none;
@@ -38,13 +39,22 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 
 /* ── Root layout ────────────────────────────────────────────── */
 .gs-root {
+  --gs-edge: clamp(10px, 3.2vw, 20px);
+  --gs-dpad-size: clamp(52px, 8.2dvh, 64px);
+  --gs-dpad-gap: clamp(8px, 1.35dvh, 10px);
+  --gs-icon-size: clamp(26px, 4.2dvh, 32px);
   position: relative;
   z-index: 1;
   width: 100%;
-  height: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 2%, rgba(0,82,255,0.16), transparent 52%),
+    radial-gradient(circle at 12% 88%, rgba(112,0,255,0.14), transparent 46%),
+    radial-gradient(circle at 92% 74%, rgba(0,229,255,0.08), transparent 40%);
 }
 
 /* ── Header ─────────────────────────────────────────────────── */
@@ -53,7 +63,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: max(28px, env(safe-area-inset-top, 28px)) 20px 6px;
+  padding: max(clamp(14px, 3dvh, 28px), env(safe-area-inset-top, 0px)) var(--gs-edge) clamp(2px, 0.8dvh, 6px);
 }
 
 .gs-brand-label {
@@ -79,7 +89,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 
 .gs-title {
   font-family: 'Space Grotesk', sans-serif;
-  font-size: clamp(1.75rem, 8vw, 2.25rem);
+  font-size: clamp(1.55rem, min(8vw, 5.2dvh), 2.25rem);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1;
@@ -96,7 +106,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 20px 4px;
+  padding: clamp(4px, 1.1dvh, 8px) var(--gs-edge) clamp(2px, 0.7dvh, 4px);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -187,7 +197,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 8px 12px;
+  padding: clamp(4px, 1.1dvh, 8px) var(--gs-edge);
   position: relative;
 }
 
@@ -209,13 +219,13 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   position: relative;
   /* fills available height first, width follows via aspect-ratio */
   height: 100%;
-  max-height: min(440px, calc(100vw - 24px));
+  max-height: min(470px, calc(100vw - var(--gs-edge) - var(--gs-edge)), 100%);
   width: auto;
   aspect-ratio: 1;
   background:
-    radial-gradient(circle at 20% 0%, rgba(0,82,255,0.12), transparent 42%),
-    radial-gradient(circle at 100% 90%, rgba(0,229,255,0.06), transparent 40%),
-    linear-gradient(145deg, rgba(22,30,51,0.9) 0%, rgba(9,14,25,0.95) 100%);
+    radial-gradient(circle at 20% 0%, rgba(0,82,255,0.16), transparent 42%),
+    radial-gradient(circle at 100% 90%, rgba(0,229,255,0.09), transparent 40%),
+    linear-gradient(145deg, rgba(27,36,60,0.92) 0%, rgba(13,19,32,0.95) 100%);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255,255,255,0.1);
@@ -320,20 +330,20 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 20px max(20px, env(safe-area-inset-bottom, 20px));
+  padding: clamp(6px, 1.2dvh, 10px) 20px max(clamp(10px, 2dvh, 20px), env(safe-area-inset-bottom, 0px));
 }
 
 .gs-dpad {
   display: grid;
-  grid-template-columns: repeat(3, 64px);
-  grid-template-rows: repeat(3, 64px);
-  gap: 10px;
+  grid-template-columns: repeat(3, var(--gs-dpad-size));
+  grid-template-rows: repeat(3, var(--gs-dpad-size));
+  gap: var(--gs-dpad-gap);
 }
 
 .gs-dpad-btn {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
+  width: var(--gs-dpad-size);
+  height: var(--gs-dpad-size);
+  border-radius: clamp(14px, 2.1dvh, 16px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -349,12 +359,12 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   box-shadow: inset 0 2px 4px rgba(0,0,0,0.3), 0 2px 4px -2px rgba(0,0,0,0.5);
   border-color: rgba(255,255,255,0.02);
 }
-.gs-dpad-btn svg { width: 32px; height: 32px; stroke-width: 2.5px; }
+.gs-dpad-btn svg { width: var(--gs-icon-size); height: var(--gs-icon-size); stroke-width: 2.5px; }
 
 .gs-dpad-center {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
+  width: var(--gs-dpad-size);
+  height: var(--gs-dpad-size);
+  border-radius: clamp(14px, 2.1dvh, 16px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -373,12 +383,12 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
     inset 0 4px 8px rgba(0,0,0,0.42),
     0 0 14px rgba(0,229,255,0.18);
 }
-.gs-dpad-center svg { width: 22px; height: 22px; }
+.gs-dpad-center svg { width: clamp(20px, 3.2dvh, 22px); height: clamp(20px, 3.2dvh, 22px); }
 
 .gs-dpad-restart {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
+  width: var(--gs-dpad-size);
+  height: var(--gs-dpad-size);
+  border-radius: clamp(14px, 2.1dvh, 16px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -389,7 +399,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   transition: transform 0.1s;
 }
 .gs-dpad-restart:active { transform: scale(0.95); }
-.gs-dpad-restart svg { width: 22px; height: 22px; }
+.gs-dpad-restart svg { width: clamp(20px, 3.2dvh, 22px); height: clamp(20px, 3.2dvh, 22px); }
 
 /* ── WalletConnect overrides for game screen — same style as landing ── */
 .gs-header .wallet-widget { width: auto; position: relative; }
@@ -563,11 +573,11 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
-  margin-bottom: 48px;
+  margin-bottom: clamp(28px, 5.8dvh, 48px);
 }
 
 .gs-end-score-card {
-  min-height: 110px;
+  min-height: clamp(88px, 13dvh, 110px);
   border-radius: 18px;
   display: flex;
   flex-direction: column;
@@ -616,7 +626,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 .gs-end-save,
 .gs-end-play {
   width: 100%;
-  min-height: 74px;
+  min-height: clamp(58px, 8.6dvh, 74px);
   border-radius: 18px;
   display: flex;
   align-items: center;
@@ -633,7 +643,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 
 .gs-end-exit {
   width: 100%;
-  min-height: 48px;
+  min-height: clamp(40px, 5.8dvh, 48px);
   border: 0;
   border-radius: 14px;
   background: transparent;
@@ -720,5 +730,31 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
       0 0 20px rgba(255,59,48,0.92),
       0 0 48px rgba(255,59,48,0.58),
       0 0 86px rgba(255,59,48,0.26);
+  }
+}
+
+@media (max-height: 720px) {
+  .gs-brand-label {
+    margin-bottom: 2px;
+    font-size: 0.56rem;
+  }
+
+  .gs-pill,
+  .gs-checkin-btn,
+  .gs-streak {
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+
+  .gs-end-title-wrap {
+    margin-bottom: 34px;
+  }
+
+  .gs-end-score-grid {
+    gap: 12px;
+  }
+
+  .gs-end-actions {
+    gap: 10px;
   }
 }

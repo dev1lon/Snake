@@ -23,6 +23,10 @@ services:
     rootDir: frontend
     buildCommand: npm install --include=dev && npm run build
     staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       - key: VITE_API_URL
         fromService:
