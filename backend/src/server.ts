@@ -3,6 +3,12 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { SiweMessage } from "siwe";
+import { createPublicClient, http } from "viem";
+import { base } from "viem/chains";
+
+// viem PublicClient verifies SIWE for ALL signature types (EOA, ERC-1271, EIP-6492).
+// Base Smart Wallet uses ERC-1271/EIP-6492 — siwe@3 alone can't validate it.
+const verifyClient = createPublicClient({ chain: base, transport: http() });
 
 type LeaderboardEntry = {
   id: string;
@@ -483,17 +489,20 @@ app.post("/api/auth/verify", async (req, res) => {
     return;
   }
 
-  const verification = await siweMessage.verify(
-    {
-      nonce,
-      signature
-    },
-    {
-      suppressExceptions: true
-    }
-  );
+  // viem.verifySiweMessage handles EOA, ERC-1271 (smart contract wallet),
+  // and EIP-6492 (counterfactually-deployed Smart Wallet) signatures.
+  let valid = false;
+  try {
+    valid = await verifyClient.verifySiweMessage({
+      message,
+      signature: signature as `0x${string}`,
+      nonce
+    });
+  } catch (err) {
+    console.error("SIWE verification error", err);
+  }
 
-  if (!verification.success) {
+  if (!valid) {
     res.status(401).json({ error: "Invalid wallet signature." });
     return;
   }

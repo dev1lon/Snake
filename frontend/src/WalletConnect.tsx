@@ -1,13 +1,10 @@
 import { ChevronDown, LogOut, Wallet } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SiweMessage } from "siwe";
+import type { Address } from "viem";
 import type { Connector } from "wagmi";
 import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
 import { base } from "wagmi/chains";
-
-type BaseAccountProvider = {
-  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-};
 
 type WalletMode = "Smart Wallet" | "Standard Wallet";
 
@@ -38,22 +35,6 @@ function formatAddress(address?: string) {
   }
 
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
-
-function getAuthAccount(authResult: unknown) {
-  const result = authResult as {
-    accounts?: Array<{
-      address?: string;
-      capabilities?: {
-        signInWithEthereum?: {
-          message?: string;
-          signature?: string;
-        };
-      };
-    }>;
-  };
-
-  return result.accounts?.[0];
 }
 
 function getFriendlyWalletError(caught: unknown) {
@@ -150,69 +131,49 @@ export function WalletConnect() {
     void restoreSession();
   }, [address, isConnected]);
 
-  // Inner step: SIWE handshake on an already-connected Smart Wallet.
-  // Inside Base App the wallet auto-signs SIWE silently (no popup).
-  const authenticateSmartWalletSession = async (silent = false) => {
-    if (!baseAccountConnector) {
-      throw new Error("Smart wallet is unavailable");
-    }
-
+  // Unified SIWE per Base "migrate to standard web app" guide:
+  // signMessageAsync works for any connected wallet. Backend verifies
+  // via viem.verifySiweMessage which supports EOA + ERC-1271 + EIP-6492
+  // (Smart Wallet undeployed counterfactual signatures).
+  const performSiwe = async (signer: Address, chainId: number, mode: WalletMode) => {
     const nonce = await getAuthNonce();
-    const provider = (await baseAccountConnector.getProvider()) as BaseAccountProvider;
-    const authResult = await provider.request({
-      method: "wallet_connect",
-      params: [
-        {
-          version: "1",
-          capabilities: {
-            signInWithEthereum: {
-              nonce,
-              chainId: "0x2105"
-            }
-          }
-        }
-      ]
-    });
-    const account = getAuthAccount(authResult);
-    const siwe = account?.capabilities?.signInWithEthereum;
+    const message = new SiweMessage({
+      domain: window.location.host,
+      address: signer,
+      statement: "Sign in to Snake.",
+      uri: window.location.origin,
+      version: "1",
+      chainId,
+      nonce
+    }).prepareMessage();
 
-    if (!account?.address || !siwe?.message || !siwe.signature) {
-      throw new Error("SIWE response is incomplete");
-    }
+    const signature = await signMessageAsync({ message, account: signer });
+    const session = await verifyAuthSession(message, signature, mode);
 
-    const session = await verifyAuthSession(siwe.message, siwe.signature, "Smart Wallet");
-    setAuthState({
-      address: session.address,
-      mode: session.mode
-    });
+    setAuthState({ address: session.address, mode: session.mode });
     setIsOpen(false);
-    void silent; // eslint placation; silent is used by callers via try/catch
+    return session;
   };
 
   const connectSmartWallet = async (showError = true) => {
     if (!baseAccountConnector) {
-      if (showError) {
-        setError("Smart wallet is unavailable");
-      }
+      if (showError) setError("Smart wallet is unavailable");
       return;
     }
-
-    if (showError) {
-      setError(null);
-    }
+    if (showError) setError(null);
 
     try {
-      await connectAsync({ connector: baseAccountConnector });
-      await authenticateSmartWalletSession();
+      const result = await connectAsync({ connector: baseAccountConnector });
+      const signer = result.accounts[0];
+      if (!signer) throw new Error("No wallet address returned");
+      await performSiwe(signer as Address, result.chainId ?? base.id, "Smart Wallet");
     } catch (caught) {
-      if (showError) {
-        setError(getFriendlyWalletError(caught));
-      }
+      if (showError) setError(getFriendlyWalletError(caught));
     }
   };
 
-  // Auto-authenticate Smart Wallet after wagmi reconnect restores the session.
-  // Inside Base App mini-app context this is silent (no signature prompt).
+  // Auto-authenticate after wagmi reconnect restores the session.
+  // Inside Base App, signMessageAsync on Smart Wallet completes silently.
   useEffect(() => {
     if (autoAuthRef.current) return;
     if (!sessionChecked) return;
@@ -220,7 +181,8 @@ export function WalletConnect() {
     if (activeConnector?.id !== "baseAccount") return;
 
     autoAuthRef.current = true;
-    void authenticateSmartWalletSession(true).catch(() => {
+    void performSiwe(address as Address, base.id, "Smart Wallet").catch((err) => {
+      console.warn("Auto SIWE failed", err);
       autoAuthRef.current = false;
     });
   }, [sessionChecked, isConnected, address, authState, activeConnector]);
@@ -237,35 +199,13 @@ export function WalletConnect() {
       setError("No wallet extension found. Install MetaMask or use Smart Wallet.");
       return;
     }
-
     setError(null);
 
     try {
       const result = await connectAsync({ connector: standardConnector as Connector });
-      const connectedAddress = result.accounts[0];
-
-      if (!connectedAddress) {
-        throw new Error("No wallet address returned");
-      }
-
-      const nonce = await getAuthNonce();
-      const message = new SiweMessage({
-        domain: window.location.host,
-        address: connectedAddress,
-        statement: "Sign in to Snake.",
-        uri: window.location.origin,
-        version: "1",
-        chainId: result.chainId ?? base.id,
-        nonce
-      }).prepareMessage();
-      const signature = await signMessageAsync({ message });
-      const session = await verifyAuthSession(message, signature, "Standard Wallet");
-
-      setAuthState({
-        address: session.address,
-        mode: session.mode
-      });
-      setIsOpen(false);
+      const signer = result.accounts[0];
+      if (!signer) throw new Error("No wallet address returned");
+      await performSiwe(signer as Address, result.chainId ?? base.id, "Standard Wallet");
     } catch (caught) {
       setError(getFriendlyWalletError(caught));
     }

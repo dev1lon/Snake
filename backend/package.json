@@ -13,7 +13,8 @@
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "pg": "^8.20.0",
-    "siwe": "^3.0.0"
+    "siwe": "^3.0.0",
+    "viem": "^2.48.8"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
