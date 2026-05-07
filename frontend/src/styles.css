@@ -12,9 +12,9 @@ html, body, #root {
 body {
   background-color: #02040a;
   background-image:
-    radial-gradient(circle at 50% -20%, rgba(0, 82, 255, 0.15) 0%, transparent 50%),
-    radial-gradient(circle at 100% 50%, rgba(0, 229, 255, 0.05) 0%, transparent 40%),
-    radial-gradient(circle at 0% 80%, rgba(112, 0, 255, 0.08) 0%, transparent 40%);
+    radial-gradient(circle at 50% -18%, rgba(0, 82, 255, 0.28) 0%, transparent 54%),
+    radial-gradient(circle at 100% 46%, rgba(0, 229, 255, 0.1) 0%, transparent 42%),
+    radial-gradient(circle at 0% 82%, rgba(112, 0, 255, 0.16) 0%, transparent 44%);
   color: #fff;
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   overscroll-behavior: none;
@@ -187,7 +187,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 6px 20px;
+  padding: 8px 12px;
   position: relative;
 }
 
@@ -195,10 +195,12 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 .gs-board-area::before {
   content: '';
   position: absolute;
-  width: 75%;
-  height: 75%;
-  background: rgba(0, 82, 255, 0.05);
-  filter: blur(80px);
+  width: 92%;
+  height: 92%;
+  background:
+    radial-gradient(circle at 45% 18%, rgba(0,82,255,0.14), transparent 54%),
+    radial-gradient(circle at 18% 88%, rgba(112,0,255,0.12), transparent 48%);
+  filter: blur(64px);
   border-radius: 50%;
   pointer-events: none;
 }
@@ -207,16 +209,22 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   position: relative;
   /* fills available height first, width follows via aspect-ratio */
   height: 100%;
-  max-height: min(380px, calc(100vw - 40px));
+  max-height: min(440px, calc(100vw - 24px));
   width: auto;
   aspect-ratio: 1;
-  background: linear-gradient(145deg, rgba(16,24,48,0.7) 0%, rgba(6,9,18,0.8) 100%);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(0,82,255,0.12), transparent 42%),
+    radial-gradient(circle at 100% 90%, rgba(0,229,255,0.06), transparent 40%),
+    linear-gradient(145deg, rgba(22,30,51,0.9) 0%, rgba(9,14,25,0.95) 100%);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px;
   overflow: hidden;
-  box-shadow: inset 0 1px 1px rgba(255,255,255,0.05), 0 10px 30px -10px rgba(0,0,0,0.8);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,0.07),
+    0 16px 40px -12px rgba(0,0,0,0.78),
+    0 0 36px rgba(0,82,255,0.08);
 }
 
 /* Blue top-edge glow line */
@@ -486,3 +494,207 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 }
 .gs-header .wallet-connected button svg { width: 12px; height: 12px; }
 .gs-header .wallet-error { font-size: 0.65rem; }
+
+.gs-end-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(28px, env(safe-area-inset-top, 28px)) 22px max(28px, env(safe-area-inset-bottom, 28px));
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255,59,48,0.12), transparent 36%),
+    radial-gradient(circle at 50% 86%, rgba(0,82,255,0.09), transparent 44%),
+    rgba(2,4,10,0.72);
+  backdrop-filter: blur(10px) saturate(125%);
+  -webkit-backdrop-filter: blur(10px) saturate(125%);
+  animation: gs-end-fade 0.34s ease-out both;
+}
+
+.gs-end-content {
+  width: min(100%, 430px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: gs-end-rise 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.gs-end-title-wrap {
+  position: relative;
+  margin-bottom: clamp(42px, 8vh, 66px);
+}
+
+.gs-end-red-glow {
+  position: absolute;
+  inset: 8px;
+  border-radius: 999px;
+  background: rgba(255,59,48,0.24);
+  filter: blur(58px);
+  transform: scale(1.75);
+}
+
+.gs-end-title {
+  position: relative;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(4rem, 18vw, 6.6rem);
+  font-weight: 800;
+  line-height: 0.9;
+  letter-spacing: -0.055em;
+  text-align: center;
+  color: #ff3b30;
+  text-shadow:
+    0 0 14px rgba(255,59,48,0.72),
+    0 0 36px rgba(255,59,48,0.46),
+    0 0 70px rgba(255,59,48,0.22);
+  animation: gs-red-pulse 1.8s ease-in-out infinite alternate;
+}
+
+.gs-end-title-win {
+  color: #00E5FF;
+  text-shadow:
+    0 0 14px rgba(0,229,255,0.72),
+    0 0 36px rgba(0,82,255,0.44);
+  animation: none;
+}
+
+.gs-end-score-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 48px;
+}
+
+.gs-end-score-card {
+  min-height: 110px;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(145deg, rgba(18,25,45,0.9), rgba(6,9,18,0.96));
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,0.06),
+    0 18px 34px -18px rgba(0,0,0,0.9);
+}
+
+.gs-end-score-card-best {
+  border-color: rgba(0,229,255,0.2);
+}
+
+.gs-end-score-card span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #8A95A5;
+}
+
+.gs-end-score-card-best span {
+  color: #00E5FF;
+}
+
+.gs-end-score-card strong {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 2.45rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+}
+
+.gs-end-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.gs-end-save,
+.gs-end-play {
+  width: 100%;
+  min-height: 74px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.08rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  transition: transform 0.12s ease, opacity 0.12s ease, box-shadow 0.12s ease;
+}
+
+.gs-end-save {
+  background: linear-gradient(180deg, #0052FF 0%, #0036A8 100%);
+  border: 1px solid rgba(0,229,255,0.42);
+  box-shadow:
+    0 0 24px rgba(0,82,255,0.34),
+    inset 0 1px 1px rgba(255,255,255,0.2);
+}
+
+.gs-end-play {
+  background: linear-gradient(145deg, rgba(10,15,25,0.94), rgba(6,9,18,0.98));
+  border: 1px solid rgba(0,229,255,0.46);
+  box-shadow:
+    0 0 24px rgba(0,229,255,0.18),
+    inset 0 1px 1px rgba(255,255,255,0.08);
+}
+
+.gs-end-save:active,
+.gs-end-play:active {
+  transform: scale(0.97);
+}
+
+.gs-end-save:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+.gs-end-save svg,
+.gs-end-play svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.gs-end-actions small {
+  min-height: 1.1em;
+  padding: 0 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  color: #8A95A5;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+@keyframes gs-end-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes gs-end-rise {
+  from { opacity: 0; transform: translateY(16px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes gs-red-pulse {
+  from {
+    text-shadow:
+      0 0 12px rgba(255,59,48,0.62),
+      0 0 30px rgba(255,59,48,0.38),
+      0 0 58px rgba(255,59,48,0.18);
+  }
+  to {
+    text-shadow:
+      0 0 20px rgba(255,59,48,0.92),
+      0 0 48px rgba(255,59,48,0.58),
+      0 0 86px rgba(255,59,48,0.26);
+  }
+}

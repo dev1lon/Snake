@@ -57,6 +57,7 @@ const BOARD_CELLS = 16;
 const TOTAL_CELLS = BOARD_CELLS * BOARD_CELLS;
 const START_LENGTH = 1;
 const STEP_MS = 236;
+const BEST_RUN_STORAGE_KEY = "snake.bestRunCells";
 const DEFAULT_RECORD_CONTRACT_ADDRESS = "0x9e5d82E6B6419C066Bc57F5a70116659c468d780" as const;
 const DEFAULT_BUILDER_CODE_SUFFIX =
   "0x62635f38776576327439680b0080218021802180218021802180218021" as const;
@@ -334,12 +335,15 @@ function Game() {
   const [streak, setStreak] = useState<StreakState | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [streakStatus, setStreakStatus] = useState<string | null>(null);
+  const [bestRunCells, setBestRunCells] = useState(() => getStoredBestRunCells());
   const { address, connector, isConnected } = useAccount();
   const { sendCallsAsync, isPending: isSavingRecord } = useSendCalls();
   const { switchChainAsync } = useSwitchChain();
 
   const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
   const gameEnded = game.status === "lost" || game.status === "won";
+  const currentRunCells = Math.max(0, game.snake.length - START_LENGTH);
+  const shownBestRunCells = Math.max(bestRunCells, currentRunCells);
   const streakUi = getStreakUi(streak, nowMs);
   const canCheckIn = Boolean(streak?.canCheckIn && address && connector && !isCheckingIn);
 
@@ -402,6 +406,18 @@ function Game() {
       dispatch({ type: "ensureFood" });
     }
   }, [game.food, game.snake, game.status]);
+
+  useEffect(() => {
+    if (!gameEnded) {
+      return;
+    }
+
+    setBestRunCells((best) => {
+      const nextBest = Math.max(best, currentRunCells);
+      storeBestRunCells(nextBest);
+      return nextBest;
+    });
+  }, [currentRunCells, gameEnded]);
 
   useEffect(() => {
     const snakeChanged = game.snake !== targetSnakeRef.current;
@@ -575,6 +591,12 @@ function Game() {
     setActiveDirection((current) => (current === direction ? null : current));
   };
 
+  const playAgain = () => {
+    setRecordStatus(null);
+    dispatch({ type: "start" });
+    releaseFocus();
+  };
+
   const checkIn = async () => {
     setStreakStatus(null);
     setIsCheckingIn(true);
@@ -736,25 +758,11 @@ function Game() {
               <span /><span />
             </div>
           )}
-          {game.status !== "running" && game.status !== "paused" && (
+          {game.status === "idle" && (
             <div className="gs-overlay" aria-live="polite">
-              <strong>{game.status === "idle" ? "Press play" : statusText}</strong>
-              <p>
-                {game.status === "won"
-                  ? "The snake filled every cell."
-                  : game.status === "lost"
-                    ? "Restart and try to fill the full board."
-                    : "Fill the board to finish the game."}
-              </p>
-              {gameEnded && (
-                <button className="gs-save-btn" type="button" disabled={isSavingRecord} onClick={saveRecord}>
-                  <Save />
-                  <span>{isSavingRecord ? "Saving..." : "Save record"}</span>
-                </button>
-              )}
-              {(recordStatus || streakStatus) && (
-                <small>{recordStatus ?? streakStatus}</small>
-              )}
+              <strong>Press play</strong>
+              <p>Fill the board to finish the game.</p>
+              {streakStatus && <small>{streakStatus}</small>}
             </div>
           )}
         </div>
@@ -833,6 +841,50 @@ function Game() {
           <span />
         </div>
       </div>
+
+      {gameEnded && (
+        <section className="gs-end-screen" aria-live="polite">
+          <div className="gs-end-content">
+            <div className="gs-end-title-wrap">
+              <div className="gs-end-red-glow" />
+              <h2 className={game.status === "won" ? "gs-end-title gs-end-title-win" : "gs-end-title"}>
+                {game.status === "won" ? (
+                  <>
+                    SCREEN<br />FILLED
+                  </>
+                ) : (
+                  <>
+                    GAME<br />OVER
+                  </>
+                )}
+              </h2>
+            </div>
+
+            <div className="gs-end-score-grid">
+              <div className="gs-end-score-card">
+                <span>Current</span>
+                <strong>{currentRunCells}</strong>
+              </div>
+              <div className="gs-end-score-card gs-end-score-card-best">
+                <span>Best</span>
+                <strong>{shownBestRunCells}</strong>
+              </div>
+            </div>
+
+            <div className="gs-end-actions">
+              <button className="gs-end-save" type="button" disabled={isSavingRecord} onClick={saveRecord}>
+                <Save />
+                <span>{isSavingRecord ? "Saving..." : "Save Record"}</span>
+              </button>
+              <button className="gs-end-play" type="button" onClick={playAgain}>
+                <Play />
+                <span>Play Again</span>
+              </button>
+              {recordStatus && <small>{recordStatus}</small>}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -873,6 +925,25 @@ function formatDuration(ms: number) {
   const seconds = totalSeconds % 60;
 
   return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function getStoredBestRunCells() {
+  try {
+    const value = window.localStorage.getItem(BEST_RUN_STORAGE_KEY);
+    const parsed = value ? Number.parseInt(value, 10) : 0;
+
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function storeBestRunCells(value: number) {
+  try {
+    window.localStorage.setItem(BEST_RUN_STORAGE_KEY, String(value));
+  } catch {
+    // Local storage can be blocked in private/webview contexts; gameplay should continue.
+  }
 }
 
 function interpolateSnake(previousSnake: Point[], targetSnake: Point[], progress: number): Point[] {
