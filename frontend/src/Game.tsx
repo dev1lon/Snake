@@ -1,9 +1,9 @@
 import {
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
   Bell,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
   Pause,
   Play,
   RotateCcw,
@@ -59,7 +59,7 @@ const START_LENGTH = 1;
 const STEP_MS = 236;
 const DEFAULT_RECORD_CONTRACT_ADDRESS = "0x9e5d82E6B6419C066Bc57F5a70116659c468d780" as const;
 const DEFAULT_BUILDER_CODE_SUFFIX =
-  "0x62635f38776576327439680b0080218021802180218021802180218021802180218021" as const;
+  "0x62635f38776576327439680b0080218021802180218021802180218021" as const;
 const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 const RECORD_CONTRACT_ADDRESS =
   getAddressEnv(import.meta.env.VITE_RECORD_CONTRACT_ADDRESS) ?? DEFAULT_RECORD_CONTRACT_ADDRESS;
@@ -191,7 +191,11 @@ function getTransactionCapabilities() {
             url: PAYMASTER_URL
           }
         }
-      : {})
+      : {}),
+    dataSuffix: {
+      optional: true,
+      value: BUILDER_CODE_SUFFIX
+    }
   };
 }
 
@@ -769,7 +773,7 @@ function Game() {
             onPointerLeave={() => releaseDirection("up")}
             onPointerUp={() => releaseDirection("up")}
           >
-            <ArrowUp />
+            <ChevronUp strokeWidth={2.5} />
           </button>
           <span />
 
@@ -782,7 +786,7 @@ function Game() {
             onPointerLeave={() => releaseDirection("left")}
             onPointerUp={() => releaseDirection("left")}
           >
-            <ArrowLeft />
+            <ChevronLeft strokeWidth={2.5} />
           </button>
           <button
             className="gs-dpad-center"
@@ -800,7 +804,7 @@ function Game() {
             onPointerLeave={() => releaseDirection("right")}
             onPointerUp={() => releaseDirection("right")}
           >
-            <ArrowRight />
+            <ChevronRight strokeWidth={2.5} />
           </button>
 
           {/* Row 3 */}
@@ -824,7 +828,7 @@ function Game() {
             onPointerLeave={() => releaseDirection("down")}
             onPointerUp={() => releaseDirection("down")}
           >
-            <ArrowDown />
+            <ChevronDown strokeWidth={2.5} />
           </button>
           <span />
         </div>
@@ -922,41 +926,38 @@ function drawSnakeSegment(
   cell: number,
   isHead: boolean
 ) {
-  const pad = Math.ceil(cell * 0.075); // ~3px for 40px cell (design: p-[3px])
+  const pad = Math.ceil(cell * 0.075);
   const x = part.x * cell + pad;
   const y = part.y * cell + pad;
   const w = cell - pad * 2;
-  const r = Math.max(4, Math.round(cell * 0.13)); // rounded-md
+  const r = Math.max(5, Math.round(cell * 0.14));
 
   context.save();
 
-  // Outer glow (box-shadow 0 0 Xpx)
-  context.shadowColor = isHead ? "rgba(0,229,255,0.65)" : "rgba(0,82,255,0.55)";
-  context.shadowBlur = isHead ? 16 : 9;
+  context.shadowColor = isHead ? "rgba(0,229,255,0.72)" : "rgba(0,82,255,0.42)";
+  context.shadowBlur = isHead ? 18 : 10;
 
-  // Main gradient fill
   const grad = context.createLinearGradient(x, y, x + w, y + w);
   if (isHead) {
-    grad.addColorStop(0, "#00E5FF");
-    grad.addColorStop(1, "#0052FF");
+    grad.addColorStop(0, "rgba(35,43,58,0.98)");
+    grad.addColorStop(0.55, "rgba(17,24,38,0.98)");
+    grad.addColorStop(1, "rgba(8,12,22,0.98)");
   } else {
-    grad.addColorStop(0, "#0052FF");
-    grad.addColorStop(1, "#0036A8");
+    grad.addColorStop(0, "rgba(22,30,46,0.82)");
+    grad.addColorStop(1, "rgba(7,12,23,0.9)");
   }
   context.fillStyle = grad;
   roundedRect(context, x, y, w, w, r);
   context.fill();
 
-  // Cyan border stroke
   context.shadowBlur = 0;
-  context.strokeStyle = isHead ? "rgba(0,229,255,0.9)" : "rgba(0,229,255,0.28)";
-  context.lineWidth = 1;
+  context.strokeStyle = isHead ? "rgba(0,229,255,0.95)" : "rgba(0,229,255,0.55)";
+  context.lineWidth = isHead ? 1.25 : 1;
   roundedRect(context, x + 0.5, y + 0.5, w - 1, w - 1, r);
   context.stroke();
 
-  // Top highlight (inset 0 1px 1px rgba(255,255,255,...))
   const hl = context.createLinearGradient(x, y, x, y + w * 0.35);
-  hl.addColorStop(0, isHead ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.28)");
+  hl.addColorStop(0, isHead ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)");
   hl.addColorStop(1, "rgba(255,255,255,0)");
   context.fillStyle = hl;
   roundedRect(context, x + 1, y + 1, w - 2, w * 0.35, r);
@@ -970,8 +971,8 @@ function drawSnakeSegment(
     const eyeY = y + w - eyeR * 2.2 - pad * 0.4;
     const gap = w * 0.18;
     context.save();
-    context.shadowColor = "rgba(255,255,255,0.9)";
-    context.shadowBlur = 5;
+    context.shadowColor = "rgba(255,255,255,0.95)";
+    context.shadowBlur = 6;
     context.fillStyle = "#ffffff";
     context.beginPath();
     context.arc(x + w / 2 - gap, eyeY, eyeR, 0, Math.PI * 2);

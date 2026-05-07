@@ -5,7 +5,7 @@ import { baseAccount, injected } from "wagmi/connectors";
 
 export const queryClient = new QueryClient();
 const builderCodeSuffix =
-  "0x62635f38776576327439680b0080218021802180218021802180218021802180218021";
+  "0x62635f38776576327439680b0080218021802180218021802180218021";
 
 export const wagmiConfig = createConfig({
   chains: [base, baseSepolia],
