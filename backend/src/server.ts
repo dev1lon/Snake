@@ -642,6 +642,42 @@ app.post("/api/player/record", async (req, res) => {
   res.json({ ok: true });
 });
 
+// Paymaster proxy — forwards JSON-RPC to CDP Paymaster while keeping
+// the API key server-side. Only allows the methods needed for sponsorship.
+const cdpPaymasterUrl = process.env.CDP_PAYMASTER_URL ?? process.env.PAYMASTER_URL;
+const allowedPaymasterMethods = new Set([
+  "pm_getPaymasterStubData",
+  "pm_getPaymasterData",
+  "pm_sponsorUserOperation",
+  "pimlico_getUserOperationGasPrice"
+]);
+
+app.post("/api/paymaster", async (req, res) => {
+  if (!cdpPaymasterUrl) {
+    res.status(503).json({ error: "Paymaster is not configured." });
+    return;
+  }
+
+  const body = req.body as { method?: unknown };
+  if (typeof body?.method !== "string" || !allowedPaymasterMethods.has(body.method)) {
+    res.status(400).json({ error: "Method not allowed." });
+    return;
+  }
+
+  try {
+    const response = await fetch(cdpPaymasterUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body)
+    });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    console.error("Paymaster proxy error", error);
+    res.status(502).json({ error: "Paymaster upstream error." });
+  }
+});
+
 app.get("/api/stats", async (_req, res) => {
   let players = 0;
 

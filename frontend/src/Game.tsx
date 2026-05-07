@@ -65,7 +65,9 @@ const DEFAULT_BUILDER_CODE_SUFFIX =
 const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 const RECORD_CONTRACT_ADDRESS =
   getAddressEnv(import.meta.env.VITE_RECORD_CONTRACT_ADDRESS) ?? DEFAULT_RECORD_CONTRACT_ADDRESS;
-const PAYMASTER_URL = import.meta.env.VITE_PAYMASTER_URL;
+// Paymaster runs through our backend proxy so the CDP API key stays
+// server-side. Backend env var is CDP_PAYMASTER_URL (or PAYMASTER_URL).
+const PAYMASTER_URL = `${API_URL}/api/paymaster`;
 const BUILDER_CODE_SUFFIX =
   getHexEnv(import.meta.env.VITE_BUILDER_CODE_SUFFIX) ?? DEFAULT_BUILDER_CODE_SUFFIX;
 

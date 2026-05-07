@@ -16,6 +16,8 @@ services:
         sync: false
       - key: ADMIN_WALLET_ADDRESS
         sync: false
+      - key: CDP_PAYMASTER_URL
+        sync: false
 
   - type: web
     name: snake-frontend
@@ -35,7 +37,5 @@ services:
           property: host
       - key: VITE_RECORD_CONTRACT_ADDRESS
         value: 0x9e5d82E6B6419C066Bc57F5a70116659c468d780
-      - key: VITE_PAYMASTER_URL
-        sync: false
       - key: VITE_BUILDER_CODE_SUFFIX
         value: 0x62635f38776576327439680b0080218021802180218021802180218021
