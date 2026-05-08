@@ -14,11 +14,9 @@ services:
         value: https://base-snake.app
       - key: BASE_API_KEY
         sync: false
-      # Comma-separated list of admin wallet addresses (lowercase or mixed-case).
-      # Use the SMART WALLET address shown in the connected wallet button on the
-      # game header — NOT your Coinbase EOA address. They are different.
+      # Comma-separated list of admin wallet addresses (case-insensitive).
       - key: ADMIN_ADDRESSES
-        sync: false
+        value: 0xB2a35f421eC0F1d744dF961Aa1B5569D83596137
       - key: CDP_PAYMASTER_URL
         sync: false
 
