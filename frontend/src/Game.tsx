@@ -375,7 +375,7 @@ function Game() {
   const isOnchainPending = isSavingRecord || isWritingContract;
   const shouldUseBatchCalls = supportsBatching(getBaseCapabilities(walletCapabilities));
   const streakUi = getStreakUi(streak, nowMs);
-  const canCheckIn = Boolean(streak?.canCheckIn && address && connector && !isCheckingIn && !isOnchainPending);
+  const canCheckIn = Boolean(streak?.canCheckIn && address && !isCheckingIn && !isOnchainPending);
 
   const queueDirection = (direction: Direction) => {
     const liveGame = gameRef.current;
@@ -406,30 +406,52 @@ function Game() {
   }, []);
 
   useEffect(() => {
-    const loadStreak = async () => {
-      if (!isConnected || !address) {
-        setStreak(null);
-        return;
-      }
+    if (!isConnected || !address) {
+      setStreak(null);
+      return;
+    }
 
+    // Show last cached streak immediately so the timer/cooldown is visible
+    // before the network round-trip (especially on Render free-tier cold starts).
+    const cached = readCachedStreak(address);
+    if (cached) setStreak(cached);
+
+    let cancelled = false;
+    const loadStreak = async () => {
       try {
         const response = await fetch(`${API_URL}/api/streak`, {
           credentials: "include",
           headers: authHeaders()
         });
+        if (cancelled) return;
 
         if (!response.ok) {
-          setStreak(null);
+          // 401 = not authenticated yet (auto-SIWE in flight). Keep cached value
+          // and re-run on the snake:auth-changed event below.
+          if (response.status !== 401) setStreak(null);
           return;
         }
 
-        setStreak((await response.json()) as StreakState);
+        const data = (await response.json()) as StreakState;
+        if (cancelled) return;
+        setStreak(data);
+        writeCachedStreak(address, data);
       } catch {
-        setStreak(null);
+        if (cancelled) return;
+        // Keep cached value on network error
       }
     };
 
     void loadStreak();
+
+    // Refetch after WalletConnect completes SIWE so cooldown timer is fresh.
+    const handler = () => void loadStreak();
+    window.addEventListener("snake:auth-changed", handler);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("snake:auth-changed", handler);
+    };
   }, [address, isConnected]);
 
   useEffect(() => {
@@ -640,7 +662,7 @@ function Game() {
       return null;
     }
 
-    if (!address || !connector) {
+    if (!address) {
       throw new Error("Connect wallet first");
     }
 
@@ -674,7 +696,7 @@ function Game() {
       throw new Error("Set VITE_RECORD_CONTRACT_ADDRESS after deploy");
     }
 
-    if (!address || !connector) {
+    if (!address) {
       throw new Error("Connect wallet first");
     }
 
@@ -728,6 +750,7 @@ function Game() {
       }
 
       setStreak(data);
+      if (address) writeCachedStreak(address, data);
       setStreakStatus(data.checkedInToday ? "Checked in" : "Already active");
     } catch (caught) {
       setStreakStatus(caught instanceof Error ? caught.message : "Check-in failed");
@@ -1030,6 +1053,25 @@ function storeBestRunCells(value: number) {
     window.localStorage.setItem(BEST_RUN_STORAGE_KEY, String(value));
   } catch {
     // Local storage can be blocked in private/webview contexts; gameplay should continue.
+  }
+}
+
+const STREAK_CACHE_PREFIX = "snake.streak.";
+
+function readCachedStreak(address: string): StreakState | null {
+  try {
+    const raw = window.localStorage.getItem(STREAK_CACHE_PREFIX + address.toLowerCase());
+    return raw ? (JSON.parse(raw) as StreakState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedStreak(address: string, value: StreakState) {
+  try {
+    window.localStorage.setItem(STREAK_CACHE_PREFIX + address.toLowerCase(), JSON.stringify(value));
+  } catch {
+    /* ignore */
   }
 }
 

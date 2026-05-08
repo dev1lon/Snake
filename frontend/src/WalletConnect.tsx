@@ -159,6 +159,7 @@ export function WalletConnect() {
               address: session.address,
               mode: session.mode
             });
+            window.dispatchEvent(new Event("snake:auth-changed"));
           }
         } else if (response.status === 401) {
           // Stale token — drop it so we don't keep sending an invalid header.
@@ -199,6 +200,9 @@ export function WalletConnect() {
 
     setAuthState({ address: session.address, mode: session.mode });
     setIsOpen(false);
+    // Notify the rest of the app (Game's streak fetch, leaderboard, etc.)
+    // so any 401-blocked requests can immediately retry with the new token.
+    window.dispatchEvent(new Event("snake:auth-changed"));
     return session;
   };
 
