@@ -356,6 +356,8 @@ function Game() {
   const [streak, setStreak] = useState<StreakState | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [streakStatus, setStreakStatus] = useState<string | null>(null);
+  const [isSendingNotification, setIsSendingNotification] = useState(false);
+  const [notifyToast, setNotifyToast] = useState<string | null>(null);
   const [bestRunCells, setBestRunCells] = useState(() => getStoredBestRunCells());
   const { address, connector, isConnected } = useAccount();
   const { sendCallsAsync, isPending: isSavingRecord } = useSendCalls();
@@ -760,7 +762,9 @@ function Game() {
   };
 
   const sendAdminNotification = async () => {
-    setStreakStatus(null);
+    if (isSendingNotification) return;
+    setNotifyToast(null);
+    setIsSendingNotification(true);
 
     try {
       const response = await fetch(`${API_URL}/api/admin/notify-random`, {
@@ -768,15 +772,22 @@ function Game() {
         credentials: "include",
         headers: authHeaders()
       });
-      const data = (await response.json().catch(() => null)) as { error?: string; sentCount?: number } | null;
+      const data = (await response.json().catch(() => null)) as { error?: string; sentCount?: number; failedCount?: number } | null;
 
       if (!response.ok) {
         throw new Error(data?.error ?? "Notification failed");
       }
 
-      setStreakStatus(`Sent ${data?.sentCount ?? 0}`);
+      const sent = data?.sentCount ?? 0;
+      setNotifyToast(sent > 0 ? `Sent to ${sent} player${sent === 1 ? "" : "s"}` : "No active subscribers");
+      setStreakStatus(`Sent ${sent}`);
     } catch (caught) {
-      setStreakStatus(caught instanceof Error ? caught.message : "Notification failed");
+      const msg = caught instanceof Error ? caught.message : "Notification failed";
+      setNotifyToast(msg);
+      setStreakStatus(msg);
+    } finally {
+      setIsSendingNotification(false);
+      window.setTimeout(() => setNotifyToast(null), 2800);
     }
   };
 
@@ -849,12 +860,26 @@ function Game() {
             <span className="gs-streak-timer">{streakUi.timer}</span>
           </div>
           {streak?.isAdmin && (
-            <button className="gs-bell-btn" type="button" onClick={sendAdminNotification} title="Send notification">
+            <button
+              className={`gs-bell-btn${isSendingNotification ? " is-loading" : ""}`}
+              type="button"
+              onClick={sendAdminNotification}
+              disabled={isSendingNotification}
+              title="Send random notification to all players"
+              aria-label="Send notification"
+            >
               <Bell size={16} />
             </button>
           )}
         </div>
       </div>
+
+      {notifyToast && (
+        <div className="gs-toast" role="status" aria-live="polite">
+          <Bell size={14} />
+          <span>{notifyToast}</span>
+        </div>
+      )}
 
       {/* Game board */}
       <main className="gs-board-area">

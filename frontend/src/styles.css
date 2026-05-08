@@ -186,9 +186,47 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   justify-content: center;
   color: #8A95A5;
   flex-shrink: 0;
+  cursor: pointer;
   transition: all 0.2s;
 }
-.gs-bell-btn:hover { color: #fff; background: rgba(255,255,255,0.07); }
+.gs-bell-btn:hover:not(:disabled) {
+  color: #00E5FF;
+  background: rgba(0, 82, 255, 0.12);
+  border-color: rgba(0, 229, 255, 0.4);
+  box-shadow: 0 0 12px rgba(0, 82, 255, 0.25);
+}
+.gs-bell-btn:active:not(:disabled) { transform: scale(0.94); }
+.gs-bell-btn:disabled { cursor: progress; opacity: 0.55; }
+.gs-bell-btn.is-loading svg { animation: gs-spin 0.9s linear infinite; }
+@keyframes gs-spin { to { transform: rotate(360deg); } }
+
+/* ── Toast (admin notification feedback) ────────────────────── */
+.gs-toast {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top, 16px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(0,82,255,0.92), rgba(0,54,168,0.95));
+  border: 1px solid rgba(0,229,255,0.35);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.5), 0 0 18px rgba(0,82,255,0.4);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  animation: gs-toast-in 0.25s ease-out;
+}
+.gs-toast svg { color: #00E5FF; flex-shrink: 0; }
+@keyframes gs-toast-in {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
 
 /* ── Board area ─────────────────────────────────────────────── */
 .gs-board-area {
