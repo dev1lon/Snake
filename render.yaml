@@ -14,8 +14,9 @@ services:
         value: https://base-snake.app
       - key: BASE_API_KEY
         sync: false
-      # Comma-separated list of admin wallet addresses (case-insensitive).
-      - key: ADMIN_ADDRESSES
+      # Single admin wallet address (case-insensitive). Backend also supports
+      # ADMIN_ADDRESSES (comma-separated) if you need multiple admins later.
+      - key: ADMIN_WALLET_ADDRESS
         value: 0xB2a35f421eC0F1d744dF961Aa1B5569D83596137
       - key: CDP_PAYMASTER_URL
         sync: false

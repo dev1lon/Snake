@@ -450,6 +450,18 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+// Diagnostic endpoint — quickly verify which admin addresses backend sees.
+// Returns only the count + last 6 chars per address; no full addresses
+// are leaked, but you can verify which Smart Wallet to connect with.
+app.get("/api/admin/whoami", (req, res) => {
+  const session = req.headers.authorization || req.headers.cookie ? "present" : "absent";
+  res.json({
+    adminAddressesCount: adminAddresses.size,
+    adminAddressesPreview: Array.from(adminAddresses).map((a) => `…${a.slice(-6)}`),
+    requestSession: session
+  });
+});
+
 app.get("/api/auth/nonce", (_req, res) => {
   cleanupNonces();
 
