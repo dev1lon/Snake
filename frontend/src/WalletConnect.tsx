@@ -119,7 +119,7 @@ export function WalletConnect() {
   const [authState, setAuthState] = useState<AuthState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
-  const autoAuthRef = useRef(false);
+  const autoAuthRef = useRef<string | null>(null);
 
   const baseAccountConnector = useMemo(
     () => connectors.find((connector) => connector.id === "baseAccount"),
@@ -131,9 +131,16 @@ export function WalletConnect() {
   );
 
   useEffect(() => {
+    let cancelled = false;
+    // Reset on every dependency change so auto-auth can't fire while we're
+    // mid-check. Without this we had a race: first render sets sessionChecked
+    // true (no wallet yet), then wagmi reconnects, /api/auth/me starts
+    // fetching, and auto-auth fires SIWE before the fetch resolves.
+    setSessionChecked(false);
+
     const restoreSession = async () => {
-      if (!isConnected && !address) {
-        setSessionChecked(true);
+      if (!isConnected || !address) {
+        if (!cancelled) setSessionChecked(true);
         return;
       }
 
@@ -142,24 +149,33 @@ export function WalletConnect() {
           credentials: "include",
           headers: authHeaders()
         });
+        if (cancelled) return;
 
         if (response.ok) {
           const session = (await response.json()) as AuthResponse;
+          if (cancelled) return;
           if (session.authenticated) {
             setAuthState({
               address: session.address,
               mode: session.mode
             });
           }
+        } else if (response.status === 401) {
+          // Stale token — drop it so we don't keep sending an invalid header.
+          setStoredAuthToken(null);
         }
       } catch {
-        setAuthState(null);
+        if (cancelled) return;
       } finally {
-        setSessionChecked(true);
+        if (!cancelled) setSessionChecked(true);
       }
     };
 
     void restoreSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, [address, isConnected]);
 
   // Unified SIWE per Base "migrate to standard web app" guide:
@@ -206,15 +222,16 @@ export function WalletConnect() {
   // Auto-authenticate after wagmi reconnect restores the session.
   // Inside Base App, signMessageAsync on Smart Wallet completes silently.
   useEffect(() => {
-    if (autoAuthRef.current) return;
+    // If we already tried for this exact address, don't fire again until it changes.
+    if (autoAuthRef.current === address) return;
     if (!sessionChecked) return;
     if (!isConnected || !address || authState) return;
     if (activeConnector?.id !== "baseAccount") return;
 
-    autoAuthRef.current = true;
+    autoAuthRef.current = address;
     void performSiwe(address as Address, base.id, "Smart Wallet").catch((err) => {
       console.warn("Auto SIWE failed", err);
-      autoAuthRef.current = false;
+      autoAuthRef.current = null;
     });
   }, [sessionChecked, isConnected, address, authState, activeConnector]);
 
