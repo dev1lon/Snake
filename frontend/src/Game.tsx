@@ -845,6 +845,18 @@ function Game() {
           <div className="gs-pill">{filledPercent}%</div>
         </div>
         <div className="gs-stats-right">
+          {streak?.isAdmin && (
+            <button
+              className={`gs-bell-btn${isSendingNotification ? " is-loading" : ""}`}
+              type="button"
+              onClick={sendAdminNotification}
+              disabled={isSendingNotification}
+              title="Send random notification to all players"
+              aria-label="Send notification"
+            >
+              <Bell size={16} />
+            </button>
+          )}
           <button
             className="gs-checkin-btn"
             type="button"
@@ -859,18 +871,6 @@ function Game() {
             <strong>{streakUi.count}</strong>
             <span className="gs-streak-timer">{streakUi.timer}</span>
           </div>
-          {streak?.isAdmin && (
-            <button
-              className={`gs-bell-btn${isSendingNotification ? " is-loading" : ""}`}
-              type="button"
-              onClick={sendAdminNotification}
-              disabled={isSendingNotification}
-              title="Send random notification to all players"
-              aria-label="Send notification"
-            >
-              <Bell size={16} />
-            </button>
-          )}
         </div>
       </div>
 
