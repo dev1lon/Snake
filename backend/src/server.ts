@@ -46,7 +46,16 @@ const publicFrontendOrigin = frontendOrigin ? normalizeOrigin(frontendOrigin) : 
 const databaseUrl = process.env.DATABASE_URL;
 const baseAppUrl = process.env.BASE_APP_URL ?? publicFrontendOrigin;
 const baseNotificationsApiKey = process.env.BASE_API_KEY ?? process.env.BASE_NOTIFICATIONS_API_KEY;
-const adminWalletAddress = process.env.ADMIN_WALLET_ADDRESS?.toLowerCase();
+// Supports either ADMIN_ADDRESSES (comma-separated list) or single
+// ADMIN_WALLET_ADDRESS for backwards compatibility.
+const adminAddresses = new Set<string>(
+  [
+    ...(process.env.ADMIN_ADDRESSES ?? "").split(","),
+    process.env.ADMIN_WALLET_ADDRESS ?? ""
+  ]
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+);
 const leaderboard: LeaderboardEntry[] = [];
 const nonces = new Map<string, number>();
 const sessions = new Map<string, Session>();
@@ -321,7 +330,8 @@ function makeStreakStatus(record: StreakRecord | undefined, checkedInToday = fal
 }
 
 function isAdminAddress(address: string | undefined) {
-  return Boolean(adminWalletAddress && address?.toLowerCase() === adminWalletAddress);
+  if (!address || adminAddresses.size === 0) return false;
+  return adminAddresses.has(address.toLowerCase());
 }
 
 function applyCheckIn(record: StreakRecord | undefined, address: string) {
@@ -461,7 +471,8 @@ app.get("/api/auth/me", async (req, res) => {
   res.json({
     authenticated: true,
     address: session.address,
-    mode: session.mode
+    mode: session.mode,
+    isAdmin: isAdminAddress(session.address)
   });
 });
 
