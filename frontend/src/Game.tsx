@@ -14,7 +14,7 @@ import { useNavigate } from "react-router-dom";
 import { encodeFunctionData, type Address, type Hex } from "viem";
 import { useAccount, useCapabilities, useSendCalls, useSwitchChain, useWriteContract } from "wagmi";
 import { base } from "wagmi/chains";
-import { authHeaders, WalletConnect } from "./WalletConnect";
+import { authHeaders, getStoredIsAdmin, WalletConnect } from "./WalletConnect";
 import { snakeRecordsAbi } from "./contracts";
 
 type Point = {
@@ -358,6 +358,7 @@ function Game() {
   const [streakStatus, setStreakStatus] = useState<string | null>(null);
   const [isSendingNotification, setIsSendingNotification] = useState(false);
   const [notifyToast, setNotifyToast] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => getStoredIsAdmin());
   const [bestRunCells, setBestRunCells] = useState(() => getStoredBestRunCells());
   const { address, connector, isConnected } = useAccount();
   const { sendCallsAsync, isPending: isSavingRecord } = useSendCalls();
@@ -405,6 +406,20 @@ function Game() {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
 
     return () => window.clearInterval(timer);
+  }, []);
+
+  // Listen for auth-changed: WalletConnect attaches isAdmin in detail.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const customEvent = event as CustomEvent<{ isAdmin?: boolean }>;
+      if (typeof customEvent.detail?.isAdmin === "boolean") {
+        setIsAdmin(customEvent.detail.isAdmin);
+      } else {
+        setIsAdmin(getStoredIsAdmin());
+      }
+    };
+    window.addEventListener("snake:auth-changed", handler);
+    return () => window.removeEventListener("snake:auth-changed", handler);
   }, []);
 
   useEffect(() => {
@@ -845,7 +860,7 @@ function Game() {
           <div className="gs-pill">{filledPercent}%</div>
         </div>
         <div className="gs-stats-right">
-          {streak?.isAdmin && (
+          {(isAdmin || streak?.isAdmin) && (
             <button
               className={`gs-bell-btn${isSendingNotification ? " is-loading" : ""}`}
               type="button"

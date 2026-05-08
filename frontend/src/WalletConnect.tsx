@@ -19,7 +19,27 @@ type AuthResponse = {
   authenticated: boolean;
   mode: WalletMode;
   token?: string;
+  isAdmin?: boolean;
 };
+
+const ADMIN_FLAG_KEY = "snake.isAdmin";
+
+export function getStoredIsAdmin(): boolean {
+  try {
+    return localStorage.getItem(ADMIN_FLAG_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function setStoredIsAdmin(flag: boolean) {
+  try {
+    if (flag) localStorage.setItem(ADMIN_FLAG_KEY, "1");
+    else localStorage.removeItem(ADMIN_FLAG_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 const AUTH_STORAGE_KEY = "snake.authToken";
 
@@ -159,7 +179,8 @@ export function WalletConnect() {
               address: session.address,
               mode: session.mode
             });
-            window.dispatchEvent(new Event("snake:auth-changed"));
+            setStoredIsAdmin(Boolean(session.isAdmin));
+            window.dispatchEvent(new CustomEvent("snake:auth-changed", { detail: { isAdmin: Boolean(session.isAdmin) } }));
           }
         } else if (response.status === 401) {
           // Stale token — drop it so we don't keep sending an invalid header.
