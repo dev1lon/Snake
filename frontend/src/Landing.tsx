@@ -1,13 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { API_URL } from "./api";
 import { WalletConnect } from "./WalletConnect";
 import "./landing.css";
-
-const API_URL = import.meta.env.VITE_API_URL
-  ? import.meta.env.VITE_API_URL.startsWith("http")
-    ? import.meta.env.VITE_API_URL
-    : `https://${import.meta.env.VITE_API_URL}`
-  : "http://localhost:4000";
 
 export default function Landing() {
   const navigate = useNavigate();

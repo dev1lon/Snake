@@ -5,6 +5,7 @@ import type { Address } from "viem";
 import type { Connector } from "wagmi";
 import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
 import { base } from "wagmi/chains";
+import { API_URL } from "./api";
 import { useBasename } from "./useBasename";
 
 type WalletMode = "Smart Wallet" | "Standard Wallet";
@@ -63,16 +64,6 @@ export function setStoredAuthToken(token: string | null) {
 export function authHeaders(): Record<string, string> {
   const token = getStoredAuthToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
-
-function normalizeApiUrl(value: string | undefined) {
-  if (!value) {
-    return "http://localhost:4000";
-  }
-
-  return value.startsWith("http") ? value : `https://${value}`;
 }
 
 function formatAddress(address?: string) {
@@ -290,6 +281,7 @@ export function WalletConnect() {
       headers: authHeaders()
     });
     setStoredAuthToken(null);
+    setStoredIsAdmin(false);
     disconnect();
     setAuthState(null);
     setError(null);

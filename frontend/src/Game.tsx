@@ -14,8 +14,9 @@ import { useNavigate } from "react-router-dom";
 import { encodeFunctionData, type Address, type Hex } from "viem";
 import { useAccount, useCapabilities, useSendCalls, useSwitchChain, useWriteContract } from "wagmi";
 import { base } from "wagmi/chains";
-import { authHeaders, getStoredIsAdmin, WalletConnect } from "./WalletConnect";
+import { API_URL } from "./api";
 import { snakeRecordsAbi } from "./contracts";
+import { authHeaders, getStoredIsAdmin, WalletConnect } from "./WalletConnect";
 
 type Point = {
   x: number;
@@ -62,7 +63,6 @@ const BEST_RUN_STORAGE_KEY = "snake.bestRunCells";
 const DEFAULT_RECORD_CONTRACT_ADDRESS = "0x9e5d82E6B6419C066Bc57F5a70116659c468d780" as const;
 const DEFAULT_BUILDER_CODE_SUFFIX =
   "0x62635f38776576327439680b0080218021802180218021802180218021" as const;
-const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
 const RECORD_CONTRACT_ADDRESS =
   getAddressEnv(import.meta.env.VITE_RECORD_CONTRACT_ADDRESS) ?? DEFAULT_RECORD_CONTRACT_ADDRESS;
 // Paymaster runs through our backend proxy so the CDP API key stays
@@ -171,14 +171,6 @@ function getDirectionFromKeyboard(event: KeyboardEvent): Direction | undefined {
   return keyMap[event.key] ?? keyMap[event.key.toLowerCase()] ?? codeMap[event.code];
 }
 
-function normalizeApiUrl(value: string | undefined) {
-  if (!value) {
-    return "http://localhost:4000";
-  }
-
-  return value.startsWith("http") ? value : `https://${value}`;
-}
-
 function getAddressEnv(value: string | undefined): Address | null {
   return value && /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as Address) : null;
 }
@@ -187,19 +179,11 @@ function getHexEnv(value: string | undefined): Hex | null {
   return value && /^0x([a-fA-F0-9]{2})+$/.test(value) ? (value as Hex) : null;
 }
 
-function getTransactionCapabilities() {
-  // dataSuffix is NOT a standard EIP-5792 capability — wallets ignore it.
-  // For sendCalls we append BUILDER_CODE_SUFFIX manually to call data.
-  return {
-    ...(PAYMASTER_URL
-      ? {
-          paymasterService: {
-            url: PAYMASTER_URL
-          }
-        }
-      : {})
-  };
-}
+// dataSuffix is NOT a standard EIP-5792 capability — wallets ignore it.
+// For sendCalls we append BUILDER_CODE_SUFFIX manually to call data.
+const TRANSACTION_CAPABILITIES = PAYMASTER_URL
+  ? { paymasterService: { url: PAYMASTER_URL } }
+  : {};
 
 function withBuilderSuffix(data: Hex): Hex {
   return `${data}${BUILDER_CODE_SUFFIX.slice(2)}` as Hex;
@@ -692,7 +676,7 @@ function Game() {
       }));
       const result = await sendCallsAsync({
         calls: [{ data, to: RECORD_CONTRACT_ADDRESS }],
-        capabilities: getTransactionCapabilities(),
+        capabilities: TRANSACTION_CAPABILITIES,
         chainId: base.id
       });
 
@@ -729,7 +713,7 @@ function Game() {
       }));
       const result = await sendCallsAsync({
         calls: [{ data, to: RECORD_CONTRACT_ADDRESS }],
-        capabilities: getTransactionCapabilities(),
+        capabilities: TRANSACTION_CAPABILITIES,
         chainId: base.id
       });
 
