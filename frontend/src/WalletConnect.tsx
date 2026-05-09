@@ -220,10 +220,9 @@ export function WalletConnect() {
     const session = await verifyAuthSession(message, signature, mode);
 
     setAuthState({ address: session.address, mode: session.mode });
+    setStoredIsAdmin(Boolean(session.isAdmin));
     setIsOpen(false);
-    // Notify the rest of the app (Game's streak fetch, leaderboard, etc.)
-    // so any 401-blocked requests can immediately retry with the new token.
-    window.dispatchEvent(new Event("snake:auth-changed"));
+    window.dispatchEvent(new CustomEvent("snake:auth-changed", { detail: { isAdmin: Boolean(session.isAdmin) } }));
     return session;
   };
 
