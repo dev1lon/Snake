@@ -27,6 +27,8 @@ type StreakRecord = {
 type NotificationResult = {
   failedCount: number;
   sentCount: number;
+  error?: string;
+  upstreamStatus?: number;
 };
 
 const app = express();
@@ -353,38 +355,72 @@ async function sendBaseNotification(
   targetPath = "/"
 ): Promise<NotificationResult> {
   if (!baseNotificationsApiKey || !baseAppUrl) {
-    return { failedCount: walletAddresses.length, sentCount: 0 };
+    return {
+      failedCount: walletAddresses.length,
+      sentCount: 0,
+      error: "BASE_API_KEY or BASE_APP_URL not configured"
+    };
   }
 
-  const response = await fetch("https://dashboard.base.org/api/v1/notifications/send", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": baseNotificationsApiKey
-    },
-    body: JSON.stringify({
-      app_url: baseAppUrl,
-      message,
-      target_path: targetPath,
-      title,
-      wallet_addresses: walletAddresses
-    })
-  });
-  const data = (await response.json().catch(() => null)) as NotificationResult | null;
+  let response: Response;
+  try {
+    response = await fetch("https://dashboard.base.org/api/v1/notifications/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": baseNotificationsApiKey
+      },
+      body: JSON.stringify({
+        app_url: baseAppUrl,
+        message,
+        target_path: targetPath,
+        title,
+        wallet_addresses: walletAddresses
+      })
+    });
+  } catch (err) {
+    console.error("Base notify fetch failed", err);
+    return {
+      failedCount: walletAddresses.length,
+      sentCount: 0,
+      error: err instanceof Error ? err.message : "Network error"
+    };
+  }
+
+  const raw = await response.text();
+  const data = (() => {
+    try {
+      return JSON.parse(raw) as { sentCount?: number; failedCount?: number; success?: boolean; error?: string };
+    } catch {
+      return null;
+    }
+  })();
 
   if (!response.ok || !data) {
-    return { failedCount: walletAddresses.length, sentCount: 0 };
+    console.error("Base notify upstream error", response.status, raw);
+    return {
+      failedCount: walletAddresses.length,
+      sentCount: 0,
+      upstreamStatus: response.status,
+      error: data?.error ?? raw.slice(0, 200) ?? `HTTP ${response.status}`
+    };
   }
 
   return {
-    failedCount: data.failedCount,
-    sentCount: data.sentCount
+    failedCount: data.failedCount ?? 0,
+    sentCount: data.sentCount ?? 0
   };
 }
 
-async function getNotificationAudience() {
+type AudienceResult = {
+  addresses: string[];
+  error?: string;
+  upstreamStatus?: number;
+};
+
+async function getNotificationAudience(): Promise<AudienceResult> {
   if (!baseNotificationsApiKey || !baseAppUrl) {
-    return [];
+    return { addresses: [], error: "BASE_API_KEY or BASE_APP_URL not configured" };
   }
 
   const addresses: string[] = [];
@@ -400,17 +436,33 @@ async function getNotificationAudience() {
       url.searchParams.set("cursor", cursor);
     }
 
-    const response = await fetch(url, {
-      headers: {
-        "x-api-key": baseNotificationsApiKey
+    let response: Response;
+    try {
+      response = await fetch(url, { headers: { "x-api-key": baseNotificationsApiKey } });
+    } catch (err) {
+      console.error("Audience fetch failed", err);
+      return {
+        addresses,
+        error: err instanceof Error ? err.message : "Network error"
+      };
+    }
+
+    const raw = await response.text();
+    const data = (() => {
+      try {
+        return JSON.parse(raw) as { nextCursor?: string; users?: Array<{ address?: string }>; error?: string };
+      } catch {
+        return null;
       }
-    });
-    const data = (await response.json().catch(() => null)) as
-      | { nextCursor?: string; users?: Array<{ address?: string }> }
-      | null;
+    })();
 
     if (!response.ok || !data?.users) {
-      break;
+      console.error("Audience upstream error", response.status, raw);
+      return {
+        addresses,
+        upstreamStatus: response.status,
+        error: data?.error ?? raw.slice(0, 200) ?? `HTTP ${response.status}`
+      };
     }
 
     data.users.forEach((user) => {
@@ -421,7 +473,7 @@ async function getNotificationAudience() {
     cursor = data.nextCursor;
   } while (cursor && addresses.length < 1000);
 
-  return addresses.slice(0, 1000);
+  return { addresses: addresses.slice(0, 1000) };
 }
 
 void ensureSessionStore().catch((error) => {
@@ -599,21 +651,56 @@ app.post("/api/admin/notify-random", async (req, res) => {
   }
 
   if (!baseNotificationsApiKey || !baseAppUrl) {
-    res.status(501).json({ error: "Base notification env is not configured." });
+    res.status(501).json({ error: "BASE_API_KEY or BASE_APP_URL not configured." });
     return;
   }
 
   const audience = await getNotificationAudience();
 
-  if (audience.length === 0) {
-    res.json({ failedCount: 0, sentCount: 0 });
+  if (audience.error) {
+    res.status(502).json({
+      error: `Audience fetch failed: ${audience.error}`,
+      audienceCount: audience.addresses.length,
+      upstreamStatus: audience.upstreamStatus,
+      appUrl: baseAppUrl
+    });
+    return;
+  }
+
+  if (audience.addresses.length === 0) {
+    res.json({
+      failedCount: 0,
+      sentCount: 0,
+      audienceCount: 0,
+      appUrl: baseAppUrl,
+      hint: "No users with notifications enabled. Verify app is registered on base.dev with this exact app_url and users have opted in."
+    });
     return;
   }
 
   const text = notificationTexts[Math.floor(Math.random() * notificationTexts.length)];
-  const result = await sendBaseNotification(audience, "Snake", text, "/");
+  const result = await sendBaseNotification(audience.addresses, "Snake", text, "/");
 
-  res.json(result);
+  res.json({ ...result, audienceCount: audience.addresses.length, appUrl: baseAppUrl });
+});
+
+app.get("/api/admin/notify-debug", async (req, res) => {
+  const { session, token } = await getRequestSession(req);
+
+  if (!token || !session || !isAdminAddress(session.address)) {
+    res.status(403).json({ error: "Admin wallet required." });
+    return;
+  }
+
+  const audience = await getNotificationAudience();
+  res.json({
+    appUrl: baseAppUrl,
+    hasApiKey: Boolean(baseNotificationsApiKey),
+    audienceCount: audience.addresses.length,
+    audiencePreview: audience.addresses.slice(0, 3).map((a) => `…${a.slice(-6)}`),
+    audienceError: audience.error,
+    upstreamStatus: audience.upstreamStatus
+  });
 });
 
 app.post("/api/player/record", async (req, res) => {
