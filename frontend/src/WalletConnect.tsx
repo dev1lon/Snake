@@ -282,6 +282,7 @@ export function WalletConnect() {
     });
     setStoredAuthToken(null);
     setStoredIsAdmin(false);
+    autoAuthRef.current = null;
     disconnect();
     setAuthState(null);
     setError(null);

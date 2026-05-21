@@ -76,12 +76,12 @@ const notificationTexts = [
 ];
 
 function getAllowedOrigins() {
-  const origins = new Set([
-    publicFrontendOrigin,
-    defaultFrontendOrigin,
-    "http://localhost:5173",
-    "http://127.0.0.1:5173"
-  ]);
+  const origins = new Set([publicFrontendOrigin, defaultFrontendOrigin]);
+
+  if (process.env.NODE_ENV !== "production") {
+    origins.add("http://localhost:5173");
+    origins.add("http://127.0.0.1:5173");
+  }
 
   return Array.from(origins);
 }
