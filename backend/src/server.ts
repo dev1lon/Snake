@@ -67,7 +67,12 @@ const notificationTexts = [
   "One clean run can beat your record.",
   "The board is ready. Keep the streak alive.",
   "Snake check-in is open.",
-  "Base snake is calling you back."
+  "Base snake is calling you back.",
+  "Don't break the chain — check in now.",
+  "A new run is waiting for you.",
+  "Your streak won't last forever. Check in.",
+  "Time to slither. Check in today.",
+  "Keep it going — your streak is on the line."
 ];
 
 function getAllowedOrigins() {
@@ -370,15 +375,27 @@ async function sendBaseNotification(
       wallet_addresses: walletAddresses
     })
   });
-  const data = (await response.json().catch(() => null)) as NotificationResult | null;
+
+  const data = (await response.json().catch(() => null)) as {
+    sentCount?: number;
+    failedCount?: number;
+    results?: Array<{ sent: boolean; failureReason?: string }>;
+  } | null;
 
   if (!response.ok || !data) {
+    console.error("Base notify error", response.status, data);
     return { failedCount: walletAddresses.length, sentCount: 0 };
   }
 
+  // Log first failure reason for debugging
+  const firstFailure = data.results?.find((r) => !r.sent && r.failureReason);
+  if (firstFailure) {
+    console.warn("Base notify partial failure:", firstFailure.failureReason);
+  }
+
   return {
-    failedCount: data.failedCount,
-    sentCount: data.sentCount
+    failedCount: data.failedCount ?? 0,
+    sentCount: data.sentCount ?? 0
   };
 }
 
@@ -611,9 +628,12 @@ app.post("/api/admin/notify-random", async (req, res) => {
   }
 
   const text = notificationTexts[Math.floor(Math.random() * notificationTexts.length)];
-  const result = await sendBaseNotification(audience, "Snake", text, "/");
+  // Include short date in title so the same text isn't considered identical
+  // across days — Base deduplicates identical (title+message) within 24 hours.
+  const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const result = await sendBaseNotification(audience, `Snake • ${today}`, text, "/");
 
-  res.json(result);
+  res.json({ ...result, audienceCount: audience.length });
 });
 
 app.post("/api/player/record", async (req, res) => {

@@ -771,14 +771,20 @@ function Game() {
         credentials: "include",
         headers: authHeaders()
       });
-      const data = (await response.json().catch(() => null)) as { error?: string; sentCount?: number; failedCount?: number } | null;
+      const data = (await response.json().catch(() => null)) as {
+        error?: string;
+        sentCount?: number;
+        failedCount?: number;
+        audienceCount?: number;
+      } | null;
 
       if (!response.ok) {
         throw new Error(data?.error ?? "Notification failed");
       }
 
       const sent = data?.sentCount ?? 0;
-      setNotifyToast(sent > 0 ? `Sent to ${sent} player${sent === 1 ? "" : "s"}` : "No active subscribers");
+      const audience = data?.audienceCount ?? sent;
+      setNotifyToast(sent > 0 ? `Sent to ${sent}/${audience} players` : "No subscribers — enable in Base App");
       setStreakStatus(`Sent ${sent}`);
     } catch (caught) {
       const msg = caught instanceof Error ? caught.message : "Notification failed";
