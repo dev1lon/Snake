@@ -43,6 +43,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   --gs-dpad-size: clamp(52px, 8.2dvh, 64px);
   --gs-dpad-gap: clamp(8px, 1.35dvh, 10px);
   --gs-icon-size: clamp(26px, 4.2dvh, 32px);
+  --gs-host-controls-clearance: 0px;
   position: relative;
   z-index: 1;
   width: 100%;
@@ -368,7 +369,10 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(6px, 1.2dvh, 10px) 20px max(clamp(10px, 2dvh, 20px), env(safe-area-inset-bottom, 0px));
+  padding:
+    clamp(6px, 1.2dvh, 10px)
+    20px
+    calc(max(clamp(10px, 2dvh, 20px), env(safe-area-inset-bottom, 0px)) + var(--gs-host-controls-clearance));
 }
 
 .gs-dpad {
@@ -776,6 +780,13 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
       0 0 20px rgba(255,59,48,0.92),
       0 0 48px rgba(255,59,48,0.58),
       0 0 86px rgba(255,59,48,0.26);
+  }
+}
+
+/* Base App's bottom browser bar overlays the webview instead of reducing its viewport. */
+@media (max-width: 600px) {
+  .gs-root {
+    --gs-host-controls-clearance: 86px;
   }
 }
 
