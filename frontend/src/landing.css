@@ -286,25 +286,31 @@
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   height: 100%;
   object-fit: contain;
-  /* blend dark background of the image into the page */
-  mix-blend-mode: lighten;
+  /* fade rectangle edges into the dark background */
+  mask-image: radial-gradient(ellipse 88% 82% at 58% 50%, black 30%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 88% 82% at 58% 50%, black 30%, transparent 78%);
+  mix-blend-mode: screen;
   animation: lnd-snake-breathe 6s ease-in-out infinite;
   will-change: transform;
-  transform-origin: center bottom;
+  transform-origin: center center;
 }
 
 @keyframes lnd-snake-breathe {
-  0%   { transform: translateY(0px) rotate(0deg); }
-  18%  { transform: translateY(-6px) rotate(-0.4deg); }
-  38%  { transform: translateY(-9px) rotate(-0.5deg) scaleX(1.025); }
-  42%  { transform: translateY(-7px) rotate(-0.2deg) scaleX(0.986); }
-  46%  { transform: translateY(-9px) rotate(-0.5deg) scaleX(1.02); }
-  52%  { transform: translateY(-7px) rotate(-0.2deg) scaleX(1); }
-  72%  { transform: translateY(-4px) rotate(0deg); }
-  100% { transform: translateY(0px) rotate(0deg); }
+  /* float up */
+  0%   { transform: translateY(0px)  translateX(0px)  rotate(0deg)    scale(1);    }
+  25%  { transform: translateY(-5px) translateX(0px)  rotate(-0.3deg) scale(1);    }
+  /* hiss: quick lunge → snap back → lunge */
+  39%  { transform: translateY(-6px) translateX(0px)  rotate(-0.4deg) scale(1);    }
+  43%  { transform: translateY(-7px) translateX(8px)  rotate(-0.6deg) scale(1.04); }
+  47%  { transform: translateY(-5px) translateX(-5px) rotate(0.2deg)  scale(0.96); }
+  51%  { transform: translateY(-7px) translateX(7px)  rotate(-0.5deg) scale(1.03); }
+  56%  { transform: translateY(-5px) translateX(0px)  rotate(0deg)    scale(1);    }
+  /* float back down */
+  78%  { transform: translateY(-2px) translateX(0px)  rotate(0deg)    scale(1);    }
+  100% { transform: translateY(0px)  translateX(0px)  rotate(0deg)    scale(1);    }
 }
 
 .lnd-hero-coin {
