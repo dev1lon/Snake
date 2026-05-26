@@ -50,8 +50,11 @@ export default function Landing() {
             <div className="lnd-hero-snake-wrap">
               <img src="/hero.png" className="lnd-hero-snake" alt="" aria-hidden="true" />
             </div>
-            <img src="/coin.png" className="lnd-hero-coin lnd-hero-coin-a" alt="" aria-hidden="true" />
-            <img src="/coin.png" className="lnd-hero-coin lnd-hero-coin-b" alt="" aria-hidden="true" />
+            {/* floating coin overlays matching coin positions in the image */}
+            <img src="/coin.png" className="lnd-hero-coin lnd-hero-coin-1" alt="" aria-hidden="true" />
+            <img src="/coin.png" className="lnd-hero-coin lnd-hero-coin-2" alt="" aria-hidden="true" />
+            <img src="/coin.png" className="lnd-hero-coin lnd-hero-coin-3" alt="" aria-hidden="true" />
+            <img src="/coin.png" className="lnd-hero-coin lnd-hero-coin-4" alt="" aria-hidden="true" />
           </div>
 
         </main>
