@@ -16,7 +16,6 @@ import { useAccount, useCapabilities, useSendCalls, useSwitchChain, useWriteCont
 import { base } from "wagmi/chains";
 import { API_URL } from "./api";
 import { snakeRecordsAbi } from "./contracts";
-import { useLiteEffects } from "./useLiteEffects";
 import { authHeaders, getStoredIsAdmin, WalletConnect } from "./WalletConnect";
 
 type Point = {
@@ -60,8 +59,6 @@ const BOARD_CELLS = 16;
 const TOTAL_CELLS = BOARD_CELLS * BOARD_CELLS;
 const START_LENGTH = 1;
 const STEP_MS = 236;
-const MAX_CANVAS_PIXEL_RATIO = 1.5;
-const LITE_FRAME_INTERVAL_MS = 1000 / 30;
 const BEST_RUN_STORAGE_KEY = "snake.bestRunCells";
 const DEFAULT_RECORD_CONTRACT_ADDRESS = "0x9e5d82E6B6419C066Bc57F5a70116659c468d780" as const;
 const DEFAULT_BUILDER_CODE_SUFFIX =
@@ -326,14 +323,12 @@ function reducer(state: GameState, action: Action): GameState {
 
 function Game() {
   const navigate = useNavigate();
-  const liteEffects = useLiteEffects();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const coinImageRef = useRef<HTMLImageElement | null>(null);
   const animationFrameRef = useRef(0);
   const accumulatorRef = useRef(0);
   const gameRef = useRef<GameState>(createGame());
   const lastFrameAtRef = useRef(0);
-  const lastPaintAtRef = useRef(0);
   const stepStartedAtRef = useRef(0);
   const targetSnakeRef = useRef<Point[]>(gameRef.current.snake);
   const previousSnakeRef = useRef<Point[]>(gameRef.current.snake);
@@ -568,19 +563,19 @@ function Game() {
 
     const logicalSize = 720;
     const drawFrame = (now: number) => {
-      const displayedSize = canvas.clientWidth || logicalSize;
-      const devicePixelRatio = Math.min(window.devicePixelRatio || 1, MAX_CANVAS_PIXEL_RATIO);
-      const rasterSize = Math.max(1, Math.round(Math.min(displayedSize, logicalSize) * devicePixelRatio));
+      const devicePixelRatio = window.devicePixelRatio || 1;
       const lastFrameAt = lastFrameAtRef.current || now;
       const delta = Math.min(80, now - lastFrameAt);
       const liveGame = gameRef.current;
 
       lastFrameAtRef.current = now;
-      if (canvas.width !== rasterSize || canvas.height !== rasterSize) {
-        canvas.width = rasterSize;
-        canvas.height = rasterSize;
-        const renderScale = rasterSize / logicalSize;
-        context.setTransform(renderScale, 0, 0, renderScale, 0, 0);
+      if (
+        canvas.width !== logicalSize * devicePixelRatio ||
+        canvas.height !== logicalSize * devicePixelRatio
+      ) {
+        canvas.width = logicalSize * devicePixelRatio;
+        canvas.height = logicalSize * devicePixelRatio;
+        context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
       }
 
       if (liveGame.status === "running") {
@@ -601,26 +596,16 @@ function Game() {
         snake: interpolateSnake(previousSnakeRef.current, targetSnakeRef.current, easedProgress)
       };
 
-      const shouldPaint =
-        !liteEffects ||
-        liveGame.status !== "running" ||
-        now - lastPaintAtRef.current >= LITE_FRAME_INTERVAL_MS;
+      drawGame(context, logicalSize, renderGame, coinReady ? coinImageRef.current : null);
 
-      if (shouldPaint) {
-        drawGame(context, logicalSize, renderGame, coinReady ? coinImageRef.current : null, liteEffects);
-        lastPaintAtRef.current = now;
-      }
-
-      if (liveGame.status === "running") {
-        animationFrameRef.current = requestAnimationFrame(drawFrame);
-      }
+      animationFrameRef.current = requestAnimationFrame(drawFrame);
     };
 
     cancelAnimationFrame(animationFrameRef.current);
     animationFrameRef.current = requestAnimationFrame(drawFrame);
 
     return () => cancelAnimationFrame(animationFrameRef.current);
-  }, [coinReady, game, liteEffects]);
+  }, [coinReady]);
 
   const statusText = useMemo(() => {
     if (game.status === "won") {
@@ -843,7 +828,7 @@ function Game() {
   };
 
   return (
-    <div className={`gs-root${liteEffects ? " is-lite" : ""}`}>
+    <div className="gs-root">
       <div className="gs-grid-bg" />
 
       {/* Header */}
@@ -1135,20 +1120,19 @@ function drawGame(
   context: CanvasRenderingContext2D,
   size: number,
   game: GameState,
-  coinImage: HTMLImageElement | null,
-  liteEffects: boolean
+  coinImage: HTMLImageElement | null
 ) {
   const cell = size / BOARD_CELLS;
 
   context.clearRect(0, 0, size, size);
 
   if (game.food) {
-    drawCoin(context, game.food, cell, coinImage, liteEffects);
+    drawCoin(context, game.food, cell, coinImage);
   }
 
   // Draw tail → head so head renders on top
   for (let i = game.snake.length - 1; i >= 0; i--) {
-    drawSnakeSegment(context, game.snake[i], cell, i === 0, liteEffects);
+    drawSnakeSegment(context, game.snake[i], cell, i === 0);
   }
 }
 
@@ -1156,8 +1140,7 @@ function drawSnakeSegment(
   context: CanvasRenderingContext2D,
   part: Point,
   cell: number,
-  isHead: boolean,
-  liteEffects: boolean
+  isHead: boolean
 ) {
   const pad = Math.max(1, Math.ceil(cell * 0.045));
   const x = part.x * cell + pad;
@@ -1167,23 +1150,19 @@ function drawSnakeSegment(
 
   context.save();
 
-  if (liteEffects) {
-    context.fillStyle = isHead ? "rgba(17,24,38,0.98)" : "rgba(10,16,28,0.92)";
-  } else {
-    context.shadowColor = isHead ? "rgba(0,229,255,0.72)" : "rgba(0,82,255,0.42)";
-    context.shadowBlur = isHead ? 18 : 10;
+  context.shadowColor = isHead ? "rgba(0,229,255,0.72)" : "rgba(0,82,255,0.42)";
+  context.shadowBlur = isHead ? 18 : 10;
 
-    const grad = context.createLinearGradient(x, y, x + w, y + w);
-    if (isHead) {
-      grad.addColorStop(0, "rgba(35,43,58,0.98)");
-      grad.addColorStop(0.55, "rgba(17,24,38,0.98)");
-      grad.addColorStop(1, "rgba(8,12,22,0.98)");
-    } else {
-      grad.addColorStop(0, "rgba(22,30,46,0.82)");
-      grad.addColorStop(1, "rgba(7,12,23,0.9)");
-    }
-    context.fillStyle = grad;
+  const grad = context.createLinearGradient(x, y, x + w, y + w);
+  if (isHead) {
+    grad.addColorStop(0, "rgba(35,43,58,0.98)");
+    grad.addColorStop(0.55, "rgba(17,24,38,0.98)");
+    grad.addColorStop(1, "rgba(8,12,22,0.98)");
+  } else {
+    grad.addColorStop(0, "rgba(22,30,46,0.82)");
+    grad.addColorStop(1, "rgba(7,12,23,0.9)");
   }
+  context.fillStyle = grad;
   roundedRect(context, x, y, w, w, r);
   context.fill();
 
@@ -1193,14 +1172,12 @@ function drawSnakeSegment(
   roundedRect(context, x + 0.5, y + 0.5, w - 1, w - 1, r);
   context.stroke();
 
-  if (!liteEffects) {
-    const hl = context.createLinearGradient(x, y, x, y + w * 0.35);
-    hl.addColorStop(0, isHead ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)");
-    hl.addColorStop(1, "rgba(255,255,255,0)");
-    context.fillStyle = hl;
-    roundedRect(context, x + 1, y + 1, w - 2, w * 0.35, r);
-    context.fill();
-  }
+  const hl = context.createLinearGradient(x, y, x, y + w * 0.35);
+  hl.addColorStop(0, isHead ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)");
+  hl.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = hl;
+  roundedRect(context, x + 1, y + 1, w - 2, w * 0.35, r);
+  context.fill();
 
   context.restore();
 
@@ -1210,10 +1187,8 @@ function drawSnakeSegment(
     const eyeY = y + w - eyeR * 2.2 - pad * 0.4;
     const gap = w * 0.18;
     context.save();
-    if (!liteEffects) {
-      context.shadowColor = "rgba(255,255,255,0.95)";
-      context.shadowBlur = 6;
-    }
+    context.shadowColor = "rgba(255,255,255,0.95)";
+    context.shadowBlur = 6;
     context.fillStyle = "#ffffff";
     context.beginPath();
     context.arc(x + w / 2 - gap, eyeY, eyeR, 0, Math.PI * 2);
@@ -1227,8 +1202,7 @@ function drawCoin(
   context: CanvasRenderingContext2D,
   food: Point,
   cell: number,
-  coinImage: HTMLImageElement | null,
-  liteEffects: boolean
+  coinImage: HTMLImageElement | null
 ) {
   const inset = cell * 0.08;
   const x = food.x * cell + inset;
@@ -1237,7 +1211,7 @@ function drawCoin(
 
   if (coinImage?.complete && coinImage.naturalWidth > 0) {
     context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = liteEffects ? "low" : "high";
+    context.imageSmoothingQuality = "high";
     context.drawImage(coinImage, x, y, size, size);
     return;
   }
