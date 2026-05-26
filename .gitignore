@@ -1,7 +1,41 @@
 node_modules
 dist
+
+# Local assistant/tool state
+.claude/
+
+# Environment files and package registry credentials
 .env
-.env.local
-npm-debug.log*
-dev-server*.log
+.env.*
+*.env
+!.env.example
+!.env.sample
+!.env.template
+!.env.*.example
+!.env.*.sample
+.npmrc
+
+# Secrets, wallet material and service credentials
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.seed
+*.mnemonic
+credentials.json
+credentials.*.json
+service-account*.json
+service_account*.json
+secrets.json
+secrets.*.json
+private-key*
+private_key*
+mnemonic*
+seed-phrase*
+seed_phrase*
+
+# Local logs and OS metadata
+*.log
 .DS_Store

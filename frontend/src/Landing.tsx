@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "./api";
 import { WalletConnect } from "./WalletConnect";
+import { useLiteEffects } from "./useLiteEffects";
 import "./landing.css";
 
 export default function Landing() {
   const navigate = useNavigate();
+  const liteEffects = useLiteEffects();
   const [players, setPlayers] = useState<number>(0);
 
   useEffect(() => {
@@ -18,7 +20,7 @@ export default function Landing() {
   const playerLabel = players.toLocaleString("en-US");
 
   return (
-    <div className="lnd-root">
+    <div className={`lnd-root${liteEffects ? " is-lite" : ""}`}>
       <div className="lnd-grid" />
 
       <div className="lnd-container">
@@ -108,7 +110,7 @@ export default function Landing() {
           </div>
         </main>
 
-        {/* Sticky play button — always in view */}
+        {/* Pinned play button - always in view */}
         <div className="lnd-cta">
           <button className="lnd-btn-play" type="button" onClick={() => navigate("/game")}>
             PLAY GAME

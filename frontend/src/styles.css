@@ -778,6 +778,41 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   }
 }
 
+/* Lightweight effects reduce GPU compositing and repeated glow work on mobile devices. */
+.gs-root.is-lite .gs-grid-bg,
+.gs-root.is-lite .gs-board-area::before {
+  display: none;
+}
+
+.gs-root.is-lite .gs-pill,
+.gs-root.is-lite .gs-streak,
+.gs-root.is-lite .gs-board-panel,
+.gs-root.is-lite .gs-overlay,
+.gs-root.is-lite .gs-header .wallet-trigger,
+.gs-root.is-lite .gs-header .wallet-menu,
+.gs-root.is-lite .gs-end-screen {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.gs-root.is-lite .gs-board-panel,
+.gs-root.is-lite .gs-dpad-center,
+.gs-root.is-lite .gs-end-save,
+.gs-root.is-lite .gs-end-play {
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,0.06),
+    0 10px 22px -12px rgba(0,0,0,0.72);
+}
+
+.gs-root.is-lite .gs-end-red-glow {
+  display: none;
+}
+
+.gs-root.is-lite .gs-end-title,
+.gs-root.is-lite .gs-bell-btn.is-loading svg {
+  animation: none;
+}
+
 @media (max-height: 720px) {
   .gs-brand-label {
     margin-bottom: 2px;
