@@ -786,7 +786,16 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 /* Base App's bottom browser bar overlays the webview instead of reducing its viewport. */
 @media (max-width: 600px) {
   .gs-root {
-    --gs-host-controls-clearance: 86px;
+    --gs-host-controls-clearance: 52px;
+  }
+
+  .gs-overlay {
+    inset: auto 10px 10px;
+    padding: 9px 12px;
+  }
+
+  .gs-overlay p {
+    display: none;
   }
 }
 
