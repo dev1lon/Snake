@@ -47,7 +47,9 @@ export default function Landing() {
 
           {/* Hero */}
           <div className="lnd-hero">
-            <img src="/hero.png" className="lnd-hero-snake" alt="" aria-hidden="true" />
+            <div className="lnd-hero-snake-wrap">
+              <img src="/hero.png" className="lnd-hero-snake" alt="" aria-hidden="true" />
+            </div>
             <img src="/coin.png" className="lnd-hero-coin lnd-hero-coin-a" alt="" aria-hidden="true" />
             <img src="/coin.png" className="lnd-hero-coin lnd-hero-coin-b" alt="" aria-hidden="true" />
           </div>

@@ -282,17 +282,22 @@
   z-index: 0;
 }
 
-.lnd-hero-snake {
+/* wrapper carries blend+mask so the animated img can use GPU compositing */
+.lnd-hero-snake-wrap {
   position: relative;
   z-index: 1;
   width: 100%;
   max-width: 420px;
   height: 100%;
-  object-fit: contain;
-  /* fade rectangle edges into the dark background */
+  mix-blend-mode: screen;
   mask-image: radial-gradient(ellipse 88% 82% at 58% 50%, black 30%, transparent 78%);
   -webkit-mask-image: radial-gradient(ellipse 88% 82% at 58% 50%, black 30%, transparent 78%);
-  mix-blend-mode: screen;
+}
+
+.lnd-hero-snake {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   animation: lnd-snake-breathe 6s ease-in-out infinite;
   will-change: transform;
   transform-origin: center center;
@@ -411,8 +416,7 @@
 }
 
 .lnd-root.is-lite .lnd-hero-snake,
-.lnd-root.is-lite .lnd-hero-coin-a,
-.lnd-root.is-lite .lnd-hero-coin-b {
+.lnd-root.is-lite .lnd-hero-coin {
   animation: none;
 }
 
