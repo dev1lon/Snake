@@ -786,10 +786,19 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 /* Base App's bottom browser bar overlays the webview instead of reducing its viewport. */
 @media (max-width: 600px) {
   .gs-root {
-    --gs-dpad-size: 48px;
-    --gs-dpad-gap: 5px;
-    --gs-icon-size: 23px;
+    /*
+      Controls grow slowly with screen height. The board keeps the remainder,
+      so larger devices spend most of their extra space on gameplay.
+    */
+    --gs-dpad-size: clamp(42px, calc(33px + 1.8dvh), 56px);
+    --gs-dpad-gap: clamp(4px, 0.7dvh, 7px);
+    --gs-icon-size: clamp(20px, calc(17px + 0.7dvh), 26px);
     --gs-host-controls-clearance: 44px;
+  }
+
+  .gs-controls {
+    padding-top: clamp(3px, 0.7dvh, 7px);
+    padding-bottom: calc(6px + var(--gs-host-controls-clearance));
   }
 
   .gs-overlay {
@@ -803,8 +812,8 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 
   .gs-dpad-center svg,
   .gs-dpad-restart svg {
-    width: 20px;
-    height: 20px;
+    width: clamp(18px, calc(16px + 0.65dvh), 23px);
+    height: clamp(18px, calc(16px + 0.65dvh), 23px);
   }
 }
 
