@@ -1,6 +1,7 @@
 /* ── Root ───────────────────────────────────────────────────── */
 .lnd-root {
-  --lnd-cta-space: 86px;
+  --lnd-host-controls-clearance: max(86px, env(safe-area-inset-bottom, 0px));
+  --lnd-cta-space: calc(146px + var(--lnd-host-controls-clearance));
   height: 100vh;
   height: 100svh;
   min-height: 100vh;
@@ -228,22 +229,23 @@
   padding: 0 4px;
 }
 
-/* ── Players counter — below scene, vertical ────────────────── */
+/* Compact players pill shown above the pinned action. */
 .lnd-players-badge {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 2px;
-  margin-top: 8px;
-  padding: clamp(10px, 2.5vw, 14px) clamp(20px, 6vw, 28px);
+  justify-content: center;
+  gap: 8px;
+  margin: 0 auto 10px;
+  padding: 6px 14px;
   background: rgba(0, 229, 255, 0.04);
   border: 1px solid rgba(0, 229, 255, 0.12);
-  border-radius: 12px;
+  border-radius: 999px;
 }
 
 .lnd-players-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(1.25rem, 4.5vw, 1.6rem);
+  font-size: 0.82rem;
   font-weight: 700;
   color: #00E5FF;
   line-height: 1;
@@ -251,7 +253,7 @@
 
 .lnd-players-label {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.6rem;
+  font-size: 0.58rem;
   color: #8A95A5;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -368,9 +370,11 @@
   position: absolute;
   left: 16px;
   right: 16px;
-  bottom: 0;
-  padding: 10px 0 max(14px, env(safe-area-inset-bottom, 14px));
-  background: linear-gradient(to top, #02040a 60%, transparent);
+  bottom: var(--lnd-host-controls-clearance);
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0 8px;
+  background: linear-gradient(to top, #02040a 45%, rgba(2,4,10,0.82) 75%, transparent);
   z-index: 20;
 }
 
@@ -440,4 +444,10 @@
   box-shadow:
     inset 0 1px 1px rgba(255,255,255,0.08),
     0 10px 22px -12px rgba(0,0,0,0.72);
+}
+
+@media (min-width: 601px) {
+  .lnd-root {
+    --lnd-host-controls-clearance: max(14px, env(safe-area-inset-bottom, 0px));
+  }
 }
