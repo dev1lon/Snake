@@ -332,6 +332,8 @@ function Game() {
   const stepStartedAtRef = useRef(0);
   const targetSnakeRef = useRef<Point[]>(gameRef.current.snake);
   const previousSnakeRef = useRef<Point[]>(gameRef.current.snake);
+  const isMountedRef = useRef(true);
+  useEffect(() => () => { isMountedRef.current = false; }, []);
   const [game, dispatch] = useReducer(reducer, undefined, () => createGame());
   const [activeDirection, setActiveDirection] = useState<Direction | null>(null);
   const [coinReady, setCoinReady] = useState(false);
@@ -395,9 +397,13 @@ function Game() {
   // Listen for auth-changed: WalletConnect attaches isAdmin in detail.
   useEffect(() => {
     const handler = (event: Event) => {
-      const customEvent = event as CustomEvent<{ isAdmin?: boolean }>;
-      if (typeof customEvent.detail?.isAdmin === "boolean") {
-        setIsAdmin(customEvent.detail.isAdmin);
+      if (!(event instanceof CustomEvent)) {
+        setIsAdmin(getStoredIsAdmin());
+        return;
+      }
+      const detail = event.detail as { isAdmin?: boolean } | null;
+      if (typeof detail?.isAdmin === "boolean") {
+        setIsAdmin(detail.isAdmin);
       } else {
         setIsAdmin(getStoredIsAdmin());
       }
@@ -433,10 +439,11 @@ function Game() {
           return;
         }
 
-        const data = (await response.json()) as StreakState;
+        const json: unknown = await response.json();
         if (cancelled) return;
-        setStreak(data);
-        writeCachedStreak(address, data);
+        if (!isStreakState(json)) return;
+        setStreak(json);
+        writeCachedStreak(address, json);
       } catch {
         if (cancelled) return;
         // Keep cached value on network error
@@ -744,10 +751,12 @@ function Game() {
         credentials: "include",
         headers: authHeaders()
       });
-      const data = (await response.json().catch(() => null)) as (StreakState & { error?: string }) | null;
+      const json: unknown = await response.json().catch(() => null);
+      const data = isStreakState(json) ? (json as StreakState & { error?: string }) : null;
 
       if (!response.ok || !data) {
-        throw new Error(data?.error ?? "Check-in failed");
+        const errMsg = (json as { error?: string } | null)?.error ?? "Check-in failed";
+        throw new Error(errMsg);
       }
 
       setStreak(data);
@@ -756,7 +765,7 @@ function Game() {
     } catch (caught) {
       setStreakStatus(caught instanceof Error ? caught.message : "Check-in failed");
     } finally {
-      setIsCheckingIn(false);
+      if (isMountedRef.current) setIsCheckingIn(false);
     }
   };
 
@@ -821,7 +830,7 @@ function Game() {
         method: "POST",
         credentials: "include",
         headers: authHeaders()
-      }).catch(() => {});
+      }).catch((err) => console.error("Failed to record player", err));
     } catch (caught) {
       setRecordStatus(caught instanceof Error ? caught.message : "Record transaction failed");
     }
@@ -1088,10 +1097,23 @@ function storeBestRunCells(value: number) {
 
 const STREAK_CACHE_PREFIX = "snake.streak.";
 
+function isStreakState(value: unknown): value is StreakState {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.authenticated === "boolean" &&
+    typeof v.canCheckIn === "boolean" &&
+    typeof v.checkedInToday === "boolean" &&
+    typeof v.streak === "number"
+  );
+}
+
 function readCachedStreak(address: string): StreakState | null {
   try {
     const raw = window.localStorage.getItem(STREAK_CACHE_PREFIX + address.toLowerCase());
-    return raw ? (JSON.parse(raw) as StreakState) : null;
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    return isStreakState(parsed) ? parsed : null;
   } catch {
     return null;
   }

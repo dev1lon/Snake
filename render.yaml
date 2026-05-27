@@ -17,7 +17,7 @@ services:
       # Single admin wallet address (case-insensitive). Backend also supports
       # ADMIN_ADDRESSES (comma-separated) if you need multiple admins later.
       - key: ADMIN_WALLET_ADDRESS
-        value: 0xB2a35f421eC0F1d744dF961Aa1B5569D83596137
+        sync: false
       - key: CDP_PAYMASTER_URL
         sync: false
 

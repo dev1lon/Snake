@@ -630,7 +630,7 @@ app.post("/api/admin/notify-random", async (req, res) => {
   const text = notificationTexts[Math.floor(Math.random() * notificationTexts.length)];
   // Include short date in title so the same text isn't considered identical
   // across days — Base deduplicates identical (title+message) within 24 hours.
-  const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
   const result = await sendBaseNotification(audience, `Snake • ${today}`, text, "/");
 
   res.json({ ...result, audienceCount: audience.length });
@@ -674,8 +674,13 @@ app.post("/api/paymaster", async (req, res) => {
     return;
   }
 
-  const body = req.body as { method?: unknown };
-  if (typeof body?.method !== "string" || !allowedPaymasterMethods.has(body.method)) {
+  const body = req.body as { method?: unknown; jsonrpc?: unknown; params?: unknown };
+  if (
+    typeof body?.method !== "string" ||
+    !allowedPaymasterMethods.has(body.method) ||
+    (body.jsonrpc !== undefined && body.jsonrpc !== "2.0") ||
+    (body.params !== undefined && !Array.isArray(body.params))
+  ) {
     res.status(400).json({ error: "Method not allowed." });
     return;
   }

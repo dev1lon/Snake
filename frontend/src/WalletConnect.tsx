@@ -257,7 +257,7 @@ export function WalletConnect() {
     }
 
     // injected() requires window.ethereum — not present on mobile browsers without extension
-    const hasProvider = typeof window !== "undefined" && Boolean((window as { ethereum?: unknown }).ethereum);
+    const hasProvider = typeof window !== "undefined" && Boolean((window as Window & { ethereum?: object }).ethereum);
     if (!hasProvider) {
       setError("No wallet extension found. Install MetaMask or use Smart Wallet.");
       return;
