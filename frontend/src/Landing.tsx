@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { API_URL } from "./api";
 import { WalletConnect } from "./WalletConnect";
 import { useLiteEffects } from "./useLiteEffects";
 import "./landing.css";
@@ -8,16 +6,6 @@ import "./landing.css";
 export default function Landing() {
   const navigate = useNavigate();
   const liteEffects = useLiteEffects();
-  const [players, setPlayers] = useState<number>(0);
-
-  useEffect(() => {
-    fetch(`${API_URL}/api/stats`)
-      .then((r) => r.json())
-      .then((d: { players: number }) => setPlayers(d.players ?? 0))
-      .catch(() => {});
-  }, []);
-
-  const playerLabel = players.toLocaleString("en-US");
 
   return (
     <div className={`lnd-root${liteEffects ? " is-lite" : ""}`}>
@@ -61,10 +49,6 @@ export default function Landing() {
 
         {/* Pinned play button - always in view */}
         <div className="lnd-cta">
-          <div className="lnd-players-badge" aria-label={`${playerLabel} players`}>
-            <span className="lnd-players-value">{playerLabel}</span>
-            <span className="lnd-players-label">PLAYERS</span>
-          </div>
           <button className="lnd-btn-play" type="button" onClick={() => navigate("/game")}>
             PLAY GAME
           </button>

@@ -229,35 +229,6 @@
   padding: 0 4px;
 }
 
-/* Compact players pill shown above the pinned action. */
-.lnd-players-badge {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 0 auto 10px;
-  padding: 6px 14px;
-  background: rgba(0, 229, 255, 0.04);
-  border: 1px solid rgba(0, 229, 255, 0.12);
-  border-radius: 999px;
-}
-
-.lnd-players-value {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: #00E5FF;
-  line-height: 1;
-}
-
-.lnd-players-label {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.58rem;
-  color: #8A95A5;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
 
 /* ── Hero ────────────────────────────────────────────────────── */
 .lnd-hero {
