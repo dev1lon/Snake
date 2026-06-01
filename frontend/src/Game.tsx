@@ -339,6 +339,7 @@ function Game() {
   const [coinReady, setCoinReady] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
   const [recordStatus, setRecordStatus] = useState<string | null>(null);
+  const [recordSaved, setRecordSaved] = useState(false);
   const [streak, setStreak] = useState<StreakState | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [streakStatus, setStreakStatus] = useState<string | null>(null);
@@ -654,6 +655,7 @@ function Game() {
 
   const playAgain = () => {
     setRecordStatus(null);
+    setRecordSaved(false);
     dispatch({ type: "start" });
     releaseFocus();
   };
@@ -825,6 +827,7 @@ function Game() {
       const txId = await sendRecordRunTransaction();
 
       setRecordStatus(`Record sent ${txId.slice(0, 10)}...`);
+      setRecordSaved(true);
 
       void fetch(`${API_URL}/api/player/record`, {
         method: "POST",
@@ -1018,9 +1021,9 @@ function Game() {
             </div>
 
             <div className="gs-end-actions">
-              <button className="gs-end-save" type="button" disabled={isOnchainPending} onClick={saveRecord}>
+              <button className="gs-end-save" type="button" disabled={isOnchainPending || recordSaved} onClick={saveRecord}>
                 <Save />
-                <span>{isOnchainPending ? "Saving..." : "Save Record"}</span>
+                <span>{isOnchainPending ? "Saving..." : recordSaved ? "Saved" : "Save Record"}</span>
               </button>
               <button className="gs-end-play" type="button" onClick={playAgain}>
                 <Play />
