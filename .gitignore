@@ -3,6 +3,7 @@ dist
 
 # Local assistant/tool state
 .claude/
+.devcontainer/
 
 # Environment files and package registry credentials
 .env
