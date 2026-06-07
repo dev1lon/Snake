@@ -699,26 +699,6 @@ app.post("/api/paymaster", async (req, res) => {
   }
 });
 
-app.get("/api/stats", async (_req, res) => {
-  let players = 0;
-
-  if (pool) {
-    const result = await pool.query<{ count: string }>(`
-      SELECT COUNT(DISTINCT address) AS count FROM (
-        SELECT address FROM check_in_streaks
-        UNION
-        SELECT address FROM recorded_runs
-      ) t
-    `);
-    players = parseInt(result.rows[0]?.count ?? "0", 10);
-  } else {
-    const all = new Set([...streaks.keys(), ...recordedPlayers]);
-    players = all.size;
-  }
-
-  res.json({ players });
-});
-
 app.listen(port, () => {
   console.log(`Snake backend listening on http://localhost:${port}`);
 });

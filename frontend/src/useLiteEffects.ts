@@ -14,7 +14,7 @@ function shouldUseLiteEffects() {
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const lowMemory =
     typeof performanceNavigator.deviceMemory === "number" &&
-    performanceNavigator.deviceMemory <= 1;
+    performanceNavigator.deviceMemory <= 2;
   const lowCpu = navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 2;
 
   return reducedMotion || lowMemory || lowCpu || Boolean(performanceNavigator.connection?.saveData);
