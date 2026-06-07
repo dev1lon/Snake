@@ -367,6 +367,16 @@ function Game() {
   const streakUi = getStreakUi(streak, nowMs);
   const canCheckIn = Boolean(streak?.canCheckIn && address && !isCheckingIn && !isOnchainPending);
 
+  // A fresh run is starting — clear any save status left from the previous one.
+  // Covers every way back into "running" (Play Again, Space-to-restart, R reset+replay),
+  // not just the Play Again button.
+  useEffect(() => {
+    if (game.status === "running") {
+      setRecordStatus(null);
+      setRecordSaved(false);
+    }
+  }, [game.status]);
+
   const queueDirection = (direction: Direction) => {
     const liveGame = gameRef.current;
     const canTurn = liveGame.snake.length <= 1 || !isOpposite(liveGame.direction, direction);
@@ -654,8 +664,6 @@ function Game() {
   };
 
   const playAgain = () => {
-    setRecordStatus(null);
-    setRecordSaved(false);
     dispatch({ type: "start" });
     releaseFocus();
   };
@@ -757,8 +765,8 @@ function Game() {
       const data = isStreakState(json) ? (json as StreakState & { error?: string }) : null;
 
       if (!response.ok || !data) {
-        const errMsg = (json as { error?: string } | null)?.error ?? "Check-in failed";
-        throw new Error(errMsg);
+        const rawError = (json as { error?: unknown } | null)?.error;
+        throw new Error(typeof rawError === "string" ? rawError : "Check-in failed");
       }
 
       setStreak(data);
@@ -825,6 +833,7 @@ function Game() {
       }
 
       const txId = await sendRecordRunTransaction();
+      if (!isMountedRef.current) return;
 
       setRecordStatus(`Record sent ${txId.slice(0, 10)}...`);
       setRecordSaved(true);
@@ -835,7 +844,9 @@ function Game() {
         headers: authHeaders()
       }).catch((err) => console.error("Failed to record player", err));
     } catch (caught) {
-      setRecordStatus(caught instanceof Error ? caught.message : "Record transaction failed");
+      if (isMountedRef.current) {
+        setRecordStatus(caught instanceof Error ? caught.message : "Record transaction failed");
+      }
     }
   };
 
@@ -1107,7 +1118,9 @@ function isStreakState(value: unknown): value is StreakState {
     typeof v.authenticated === "boolean" &&
     typeof v.canCheckIn === "boolean" &&
     typeof v.checkedInToday === "boolean" &&
-    typeof v.streak === "number"
+    typeof v.streak === "number" &&
+    Number.isFinite(v.streak) &&
+    v.streak >= 0
   );
 }
 
