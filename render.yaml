@@ -4,7 +4,9 @@ services:
     env: node
     rootDir: backend
     plan: free
-    buildCommand: npm install --include=dev && npm run build
+    # npm ci, not npm install: the lockfile decides what ships, so a build can't
+    # silently pick up a new version of a wallet dependency.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start
     healthCheckPath: /health
     envVars:
@@ -20,13 +22,25 @@ services:
         sync: false
       - key: CDP_PAYMASTER_URL
         sync: false
+      # Dedicated Base RPC. Every login verifies a Smart Wallet signature with
+      # an eth_call, and the default public endpoint rate-limits.
+      - key: RPC_URL
+        sync: false
+      # Comma-separated extra origins (preview deploys, second domain). They
+      # join the CORS allowlist, the CSRF check and the SIWE domain allowlist.
+      - key: ADDITIONAL_ORIGINS
+        sync: false
+      # Optional: set DATABASE_URL (plus DATABASE_SSL=true) to keep sessions and
+      # streaks across restarts. Without it both live in memory and are lost
+      # whenever the free instance sleeps or redeploys.
 
   - type: web
     name: snake-frontend
     env: static
     rootDir: frontend
-    buildCommand: npm install --include=dev && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     staticPublishPath: dist
+    # Every path serves index.html so BrowserRouter URLs survive a refresh.
     routes:
       - type: rewrite
         source: /*
@@ -41,3 +55,6 @@ services:
         value: 0x9e5d82E6B6419C066Bc57F5a70116659c468d780
       - key: VITE_BUILDER_CODE_SUFFIX
         value: 0x62635f38776576327439680b0080218021802180218021802180218021
+      # Domain-restricted RPC key. Falls back to the public Base endpoint.
+      - key: VITE_RPC_URL
+        sync: false

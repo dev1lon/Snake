@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Save
 } from "lucide-react";
+import { waitForCallsStatus, waitForTransactionReceipt } from "@wagmi/core";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { encodeFunctionData, type Address, type Hex } from "viem";
@@ -16,6 +17,7 @@ import { useAccount, useCapabilities, useSendCalls, useSwitchChain, useWriteCont
 import { base } from "wagmi/chains";
 import { API_URL } from "./api";
 import { snakeRecordsAbi } from "./contracts";
+import { wagmiConfig } from "./wagmi";
 import { authHeaders, getStoredIsAdmin, WalletConnect } from "./WalletConnect";
 
 type Point = {
@@ -189,6 +191,48 @@ function withBuilderSuffix(data: Hex): Hex {
   return `${data}${BUILDER_CODE_SUFFIX.slice(2)}` as Hex;
 }
 
+// A sent transaction, before anyone knows whether it landed. `reference` is a
+// bundle id for batched calls and a tx hash otherwise — they are not
+// interchangeable, so the kind travels with the value.
+type SentTransaction = {
+  kind: "calls" | "transaction";
+  reference: string;
+};
+
+// The wallet only tells us the call was accepted. Sponsorship can still be
+// refused and the call can still revert, so wait for a final status before
+// telling the player anything was saved.
+async function confirmTransaction(sent: SentTransaction) {
+  if (sent.kind === "calls") {
+    const result = await waitForCallsStatus(wagmiConfig, { id: sent.reference });
+
+    return result.status === "success";
+  }
+
+  const receipt = await waitForTransactionReceipt(wagmiConfig, {
+    hash: sent.reference as Hex
+  });
+
+  return receipt.status === "success";
+}
+
+// Sponsorship is best-effort: if the paymaster is unconfigured or out of
+// budget, fall back to a self-paid transaction instead of dead-ending. A
+// wallet rejection is the user's decision and must not be retried.
+function isSponsorshipError(caught: unknown) {
+  if (!(caught instanceof Error)) {
+    return false;
+  }
+
+  const message = caught.message.toLowerCase();
+
+  if (message.includes("rejected") || message.includes("denied") || message.includes("cancel")) {
+    return false;
+  }
+
+  return message.includes("paymaster") || message.includes("sponsor");
+}
+
 type WalletCapabilities = {
   atomic?: {
     status?: string;
@@ -333,13 +377,22 @@ function Game() {
   const targetSnakeRef = useRef<Point[]>(gameRef.current.snake);
   const previousSnakeRef = useRef<Point[]>(gameRef.current.snake);
   const isMountedRef = useRef(true);
-  useEffect(() => () => { isMountedRef.current = false; }, []);
+  // Re-arm on mount: with only the cleanup, a remount (StrictMode in dev) left
+  // the flag false forever and every post-await setState was skipped.
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   const [game, dispatch] = useReducer(reducer, undefined, () => createGame());
   const [activeDirection, setActiveDirection] = useState<Direction | null>(null);
   const [coinReady, setCoinReady] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
   const [recordStatus, setRecordStatus] = useState<string | null>(null);
   const [recordSaved, setRecordSaved] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
   const [streak, setStreak] = useState<StreakState | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [streakStatus, setStreakStatus] = useState<string | null>(null);
@@ -362,7 +415,7 @@ function Game() {
   const gameEnded = game.status === "lost" || game.status === "won";
   const currentRunCells = Math.max(0, game.snake.length - START_LENGTH);
   const shownBestRunCells = Math.max(bestRunCells, currentRunCells);
-  const isOnchainPending = isSavingRecord || isWritingContract;
+  const isOnchainPending = isSavingRecord || isWritingContract || isConfirming;
   const shouldUseBatchCalls = supportsBatching(getBaseCapabilities(walletCapabilities));
   const streakUi = getStreakUi(streak, nowMs);
   const canCheckIn = Boolean(streak?.canCheckIn && address && !isCheckingIn && !isOnchainPending);
@@ -675,11 +728,30 @@ function Game() {
     releaseFocus();
   };
 
-  const sendCheckInTransaction = async () => {
-    if (!RECORD_CONTRACT_ADDRESS) {
-      return null;
-    }
+  const sendBatchedCall = async (data: Hex): Promise<SentTransaction> => {
+    const calls = [{ data, to: RECORD_CONTRACT_ADDRESS }];
 
+    try {
+      const result = await sendCallsAsync({
+        calls,
+        capabilities: TRANSACTION_CAPABILITIES,
+        chainId: base.id
+      });
+
+      return { kind: "calls", reference: result.id };
+    } catch (caught) {
+      if (!isSponsorshipError(caught)) {
+        throw caught;
+      }
+
+      console.warn("Sponsorship unavailable, sending self-paid call", caught);
+      const result = await sendCallsAsync({ calls, chainId: base.id });
+
+      return { kind: "calls", reference: result.id };
+    }
+  };
+
+  const sendCheckInTransaction = async (): Promise<SentTransaction> => {
     if (!address) {
       throw new Error("Connect wallet first");
     }
@@ -687,29 +759,23 @@ function Game() {
     await switchChainAsync({ chainId: base.id });
 
     if (shouldUseBatchCalls) {
-      const data = withBuilderSuffix(encodeFunctionData({
-        abi: snakeRecordsAbi,
-        functionName: "checkIn"
-      }));
-      const result = await sendCallsAsync({
-        calls: [{ data, to: RECORD_CONTRACT_ADDRESS }],
-        capabilities: TRANSACTION_CAPABILITIES,
-        chainId: base.id
-      });
-
-      return result.id;
+      return sendBatchedCall(
+        withBuilderSuffix(encodeFunctionData({ abi: snakeRecordsAbi, functionName: "checkIn" }))
+      );
     }
 
-    return writeContractAsync({
+    const hash = await writeContractAsync({
       address: RECORD_CONTRACT_ADDRESS,
       abi: snakeRecordsAbi,
       functionName: "checkIn",
       chainId: base.id,
       dataSuffix: BUILDER_CODE_SUFFIX
     });
+
+    return { kind: "transaction", reference: hash };
   };
 
-  const sendRecordRunTransaction = async () => {
+  const sendRecordRunTransaction = async (): Promise<SentTransaction> => {
     if (!RECORD_CONTRACT_ADDRESS) {
       throw new Error("Set VITE_RECORD_CONTRACT_ADDRESS after deploy");
     }
@@ -723,21 +789,12 @@ function Game() {
     await switchChainAsync({ chainId: base.id });
 
     if (shouldUseBatchCalls) {
-      const data = withBuilderSuffix(encodeFunctionData({
-        abi: snakeRecordsAbi,
-        functionName: "recordRun",
-        args
-      }));
-      const result = await sendCallsAsync({
-        calls: [{ data, to: RECORD_CONTRACT_ADDRESS }],
-        capabilities: TRANSACTION_CAPABILITIES,
-        chainId: base.id
-      });
-
-      return result.id;
+      return sendBatchedCall(
+        withBuilderSuffix(encodeFunctionData({ abi: snakeRecordsAbi, functionName: "recordRun", args }))
+      );
     }
 
-    return writeContractAsync({
+    const hash = await writeContractAsync({
       address: RECORD_CONTRACT_ADDRESS,
       abi: snakeRecordsAbi,
       functionName: "recordRun",
@@ -745,6 +802,8 @@ function Game() {
       chainId: base.id,
       dataSuffix: BUILDER_CODE_SUFFIX
     });
+
+    return { kind: "transaction", reference: hash };
   };
 
   const checkIn = async () => {
@@ -752,8 +811,36 @@ function Game() {
     setIsCheckingIn(true);
 
     try {
+      // Check the session before spending a transaction. The old order sent the
+      // wallet call first and only then discovered the backend answers 401.
+      const session = await fetch(`${API_URL}/api/auth/me`, {
+        credentials: "include",
+        headers: authHeaders()
+      });
+
+      if (!session.ok) {
+        throw new Error("Sign in with your wallet first");
+      }
+
       if (RECORD_CONTRACT_ADDRESS && (!streak || streak.canCheckIn)) {
-        await sendCheckInTransaction();
+        const sent = await sendCheckInTransaction();
+
+        setStreakStatus("Confirming...");
+
+        // Unknown (timeout) is treated as landed: the call is already
+        // broadcast, and skipping the backend would drift the two streaks
+        // apart. Only a known failure stops us.
+        let confirmed = true;
+
+        try {
+          confirmed = await confirmTransaction(sent);
+        } catch (caught) {
+          console.warn("Could not confirm check-in", caught);
+        }
+
+        if (!confirmed) {
+          throw new Error("Check-in transaction failed onchain");
+        }
       }
 
       const response = await fetch(`${API_URL}/api/streak/check-in`, {
@@ -832,11 +919,31 @@ function Game() {
         throw new Error("Connect wallet first");
       }
 
-      const txId = await sendRecordRunTransaction();
+      const sent = await sendRecordRunTransaction();
       if (!isMountedRef.current) return;
 
-      setRecordStatus(`Record sent ${txId.slice(0, 10)}...`);
+      setRecordStatus(`Sent ${sent.reference.slice(0, 10)}... confirming`);
+      setIsConfirming(true);
+
+      // null = we stopped waiting, not that it failed.
+      let confirmed: boolean | null = true;
+
+      try {
+        confirmed = await confirmTransaction(sent);
+      } catch (caught) {
+        console.warn("Could not confirm record run", caught);
+        confirmed = null;
+      }
+
+      if (!isMountedRef.current) return;
+
+      if (confirmed === false) {
+        setRecordStatus("Transaction failed onchain");
+        return;
+      }
+
       setRecordSaved(true);
+      setRecordStatus(confirmed ? "Record saved onchain" : "Sent — confirmation pending");
 
       void fetch(`${API_URL}/api/player/record`, {
         method: "POST",
@@ -847,6 +954,8 @@ function Game() {
       if (isMountedRef.current) {
         setRecordStatus(caught instanceof Error ? caught.message : "Record transaction failed");
       }
+    } finally {
+      if (isMountedRef.current) setIsConfirming(false);
     }
   };
 

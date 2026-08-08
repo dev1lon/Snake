@@ -2,13 +2,16 @@ import cors from "cors";
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import { SiweMessage } from "siwe";
 import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
+import { parseSiweMessage } from "viem/siwe";
 
 // viem PublicClient verifies SIWE for ALL signature types (EOA, ERC-1271, EIP-6492).
 // Base Smart Wallet uses ERC-1271/EIP-6492 — siwe@3 alone can't validate it.
-const verifyClient = createPublicClient({ chain: base, transport: http() });
+// RPC_URL should point at a dedicated provider: every login is an eth_call and
+// the default public endpoint rate-limits under real traffic.
+const rpcUrl = process.env.RPC_URL ?? process.env.BASE_RPC_URL;
+const verifyClient = createPublicClient({ chain: base, transport: http(rpcUrl) });
 
 type WalletMode = "Smart Wallet" | "Standard Wallet";
 
@@ -16,6 +19,7 @@ type Session = {
   address: string;
   createdAt: number;
   mode: WalletMode;
+  lastSeenAt?: number;
 };
 
 type StreakRecord = {
@@ -58,10 +62,18 @@ const pool = databaseUrl
     })
   : null;
 const sessionCookieName = "sneak_session";
-const sessionMaxAgeSeconds = 60 * 60 * 24 * 400;
+// Sessions used to live forever: no TTL in the DB, a 400 day cookie and no
+// cleanup. A token lifted out of localStorage stayed valid indefinitely.
+// 60 days of inactivity, with the cookie lifetime matching so both agree.
+const sessionMaxAgeSeconds = 60 * 60 * 24 * 60;
+const sessionIdleTtlMs = sessionMaxAgeSeconds * 1000;
 const nonceMaxAgeMs = 10 * 60 * 1000;
+// Hard cap: without it a flood of unauthenticated /api/auth/nonce calls grows
+// the map until the instance runs out of memory.
+const nonceMaxEntries = 20_000;
 const checkInIntervalMs = 24 * 60 * 60 * 1000;
 const checkInGraceMs = 12 * 60 * 60 * 1000;
+const externalFetchTimeoutMs = 10_000;
 const notificationTexts = [
   "Your Snake streak is waiting.",
   "One clean run can beat your record.",
@@ -75,8 +87,16 @@ const notificationTexts = [
   "Keep it going — your streak is on the line."
 ];
 
+// Comma-separated extra origins (preview deploys, a second domain). They join
+// the CORS allowlist, the CSRF check and the set of hosts SIWE will accept.
+const additionalOrigins = (process.env.ADDITIONAL_ORIGINS ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean)
+  .map(normalizeOrigin);
+
 function getAllowedOrigins() {
-  const origins = new Set([publicFrontendOrigin, defaultFrontendOrigin]);
+  const origins = new Set([publicFrontendOrigin, defaultFrontendOrigin, ...additionalOrigins]);
 
   if (process.env.NODE_ENV !== "production") {
     origins.add("http://localhost:5173");
@@ -86,8 +106,149 @@ function getAllowedOrigins() {
   return Array.from(origins);
 }
 
+const allowedOrigins = getAllowedOrigins();
+// A SIWE message carries a host (RFC 4361 `domain`), a request carries an
+// origin. Same allowlist, two views of it.
+const allowedHosts = new Set(
+  allowedOrigins.map(getHostFromOrigin).filter((host): host is string => Boolean(host))
+);
+
 function normalizeOrigin(value: string) {
   return value.startsWith("http") ? value : `https://${value}`;
+}
+
+function getHostFromOrigin(value: string) {
+  try {
+    return new URL(value).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+// Express 4 does not await route handlers, so a rejected promise becomes an
+// unhandledRejection and Node kills the process. Every async route goes
+// through here.
+function asyncRoute(
+  handler: (req: express.Request, res: express.Response) => Promise<unknown>
+): express.RequestHandler {
+  return (req, res, next) => {
+    handler(req, res).catch(next);
+  };
+}
+
+function getClientIp(req: express.Request) {
+  return req.ip ?? req.socket.remoteAddress ?? "unknown";
+}
+
+type RateLimitBucket = {
+  count: number;
+  resetAt: number;
+};
+
+// Fixed-window limiter kept in memory. Single instance today; if the service
+// ever scales out, move these buckets to Redis.
+function createRateLimiter(name: string, limit: number, windowMs: number) {
+  const buckets = new Map<string, RateLimitBucket>();
+
+  return function consume(key: string) {
+    const now = Date.now();
+    const bucketKey = `${name}:${key}`;
+    const bucket = buckets.get(bucketKey);
+
+    if (!bucket || now >= bucket.resetAt) {
+      buckets.set(bucketKey, { count: 1, resetAt: now + windowMs });
+
+      if (buckets.size > 50_000) {
+        buckets.forEach((value, mapKey) => {
+          if (now >= value.resetAt) {
+            buckets.delete(mapKey);
+          }
+        });
+      }
+
+      return { allowed: true, retryAfterSeconds: 0 };
+    }
+
+    bucket.count += 1;
+
+    if (bucket.count > limit) {
+      return {
+        allowed: false,
+        retryAfterSeconds: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))
+      };
+    }
+
+    return { allowed: true, retryAfterSeconds: 0 };
+  };
+}
+
+const limitByIp = (name: string, limit: number, windowMs: number) => {
+  const consume = createRateLimiter(name, limit, windowMs);
+
+  return function middleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+    const result = consume(getClientIp(req));
+
+    if (!result.allowed) {
+      res.setHeader("Retry-After", String(result.retryAfterSeconds));
+      res.status(429).json({ error: "Too many requests. Slow down." });
+      return;
+    }
+
+    next();
+  };
+};
+
+// CORS only decides whether a browser lets a page read the response — the
+// request still runs. For state-changing routes we check the origin ourselves
+// so a cross-site form post can't act on a session cookie.
+function hasAllowedOrigin(req: express.Request) {
+  const origin = req.headers.origin;
+
+  if (origin) {
+    return allowedOrigins.includes(origin);
+  }
+
+  const referer = req.headers.referer;
+
+  if (referer) {
+    try {
+      return allowedOrigins.includes(new URL(referer).origin);
+    } catch {
+      return false;
+    }
+  }
+
+  // No Origin and no Referer: not a browser-initiated cross-site request.
+  // Bearer-authenticated clients (Base App webview) land here.
+  return true;
+}
+
+function requireAllowedOrigin(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  if (!hasAllowedOrigin(req)) {
+    res.status(403).json({ error: "Origin not allowed." });
+    return;
+  }
+
+  next();
+}
+
+async function fetchWithTimeout(
+  input: string | URL,
+  init: RequestInit = {},
+  timeoutMs = externalFetchTimeoutMs
+) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function createNonce() {
@@ -156,6 +317,16 @@ function cleanupNonces() {
       nonces.delete(nonce);
     }
   });
+
+  // Still above the cap after dropping expired entries — evict oldest first.
+  if (nonces.size > nonceMaxEntries) {
+    const oldestFirst = Array.from(nonces.entries()).sort((a, b) => a[1] - b[1]);
+    const excess = nonces.size - nonceMaxEntries;
+
+    for (let index = 0; index < excess; index += 1) {
+      nonces.delete(oldestFirst[index][0]);
+    }
+  }
 }
 
 async function ensureSessionStore() {
@@ -190,16 +361,36 @@ async function ensureSessionStore() {
   `);
 }
 
-async function getSession(token: string) {
+async function getSession(token: string): Promise<Session | undefined> {
+  const now = Date.now();
+
   if (!pool) {
-    return sessions.get(token);
+    const session = sessions.get(token);
+
+    if (!session) {
+      return undefined;
+    }
+
+    if (now - (session.lastSeenAt ?? session.createdAt) > sessionIdleTtlMs) {
+      sessions.delete(token);
+      return undefined;
+    }
+
+    session.lastSeenAt = now;
+    return session;
   }
 
   const result = await pool.query<{
     address: string;
     created_at: Date;
     mode: WalletMode;
-  }>("SELECT address, created_at, mode FROM auth_sessions WHERE token = $1", [token]);
+  }>(
+    `SELECT address, created_at, mode
+       FROM auth_sessions
+      WHERE token = $1
+        AND last_seen_at > NOW() - make_interval(secs => $2)`,
+    [token, sessionMaxAgeSeconds]
+  );
   const row = result.rows[0];
 
   if (!row) {
@@ -213,6 +404,24 @@ async function getSession(token: string) {
     createdAt: row.created_at.getTime(),
     mode: row.mode
   };
+}
+
+// Expired rows would otherwise pile up forever: nothing ever deleted them.
+async function cleanupExpiredSessions() {
+  const now = Date.now();
+
+  if (!pool) {
+    sessions.forEach((session, token) => {
+      if (now - (session.lastSeenAt ?? session.createdAt) > sessionIdleTtlMs) {
+        sessions.delete(token);
+      }
+    });
+    return;
+  }
+
+  await pool.query("DELETE FROM auth_sessions WHERE last_seen_at < NOW() - make_interval(secs => $1)", [
+    sessionMaxAgeSeconds
+  ]);
 }
 
 async function saveSession(token: string, session: Session) {
@@ -361,7 +570,7 @@ async function sendBaseNotification(
     return { failedCount: walletAddresses.length, sentCount: 0 };
   }
 
-  const response = await fetch("https://dashboard.base.org/api/v1/notifications/send", {
+  const response = await fetchWithTimeout("https://dashboard.base.org/api/v1/notifications/send", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -417,7 +626,7 @@ async function getNotificationAudience() {
       url.searchParams.set("cursor", cursor);
     }
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: {
         "x-api-key": baseNotificationsApiKey
       }
@@ -445,31 +654,56 @@ void ensureSessionStore().catch((error) => {
   console.error("Failed to initialize session store", error);
 });
 
+// Render terminates TLS in front of the app, so without this every request
+// looks like it comes from the proxy and the rate limiters share one bucket.
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
+
 app.use(
   cors({
     credentials: true,
-    origin: getAllowedOrigins()
+    origin: allowedOrigins
   })
 );
 app.use(express.json({ limit: "32kb" }));
+
+// Deliberately loose. Mobile carriers put many players behind one address, so
+// these are sized to stop floods and memory growth, not to police normal play.
+const nonceLimiter = limitByIp("nonce", 120, 10 * 60 * 1000);
+const verifyLimiter = limitByIp("verify", 60, 10 * 60 * 1000);
+const readLimiter = limitByIp("read", 600, 5 * 60 * 1000);
+const writeLimiter = limitByIp("write", 300, 60 * 60 * 1000);
+const notifyLimiter = limitByIp("notify", 20, 60 * 60 * 1000);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-// Diagnostic endpoint — quickly verify which admin addresses backend sees.
-// Returns only the count + last 6 chars per address; no full addresses
-// are leaked, but you can verify which Smart Wallet to connect with.
-app.get("/api/admin/whoami", (req, res) => {
-  const session = req.headers.authorization || req.headers.cookie ? "present" : "absent";
-  res.json({
-    adminAddressesCount: adminAddresses.size,
-    adminAddressesPreview: Array.from(adminAddresses).map((a) => `…${a.slice(-6)}`),
-    requestSession: session
-  });
-});
+// Diagnostic endpoint — confirms the backend picked up admin config at all.
+// It used to return the last 6 chars of every admin address; combined with the
+// project's onchain history that was enough to pin down the admin wallet, so
+// now it only reports whether config arrived and whether *you* are an admin.
+app.get(
+  "/api/admin/whoami",
+  readLimiter,
+  asyncRoute(async (req, res) => {
+    const { session } = await getRequestSession(req);
 
-app.get("/api/auth/nonce", (_req, res) => {
+    res.json({
+      adminConfigured: adminAddresses.size > 0,
+      authenticated: Boolean(session),
+      isAdmin: isAdminAddress(session?.address)
+    });
+  })
+);
+
+app.get("/api/auth/nonce", nonceLimiter, (_req, res) => {
   cleanupNonces();
 
   const nonce = createNonce();
@@ -477,186 +711,237 @@ app.get("/api/auth/nonce", (_req, res) => {
   res.json({ nonce });
 });
 
-app.get("/api/auth/me", async (req, res) => {
-  const token = getAuthToken(req);
-  const session = token ? await getSession(token) : undefined;
+app.get(
+  "/api/auth/me",
+  readLimiter,
+  asyncRoute(async (req, res) => {
+    const token = getAuthToken(req);
+    const session = token ? await getSession(token) : undefined;
 
-  if (!token || !session) {
-    res.status(401).json({ authenticated: false });
-    return;
-  }
+    if (!token || !session) {
+      res.status(401).json({ authenticated: false });
+      return;
+    }
 
-  res.setHeader("Set-Cookie", makeSessionCookie(token));
-  res.json({
-    authenticated: true,
-    address: session.address,
-    mode: session.mode,
-    isAdmin: isAdminAddress(session.address)
-  });
-});
-
-app.post("/api/auth/logout", async (req, res) => {
-  const token = getAuthToken(req);
-
-  if (token) {
-    await deleteSession(token);
-  }
-
-  res.setHeader("Set-Cookie", makeClearSessionCookie());
-  res.json({ ok: true });
-});
-
-app.post("/api/auth/verify", async (req, res) => {
-  const { message, mode, signature } = req.body as {
-    message?: unknown;
-    mode?: unknown;
-    signature?: unknown;
-  };
-
-  if (typeof message !== "string" || typeof signature !== "string") {
-    res.status(400).json({ error: "Invalid SIWE payload." });
-    return;
-  }
-
-  const walletMode: WalletMode = mode === "Smart Wallet" ? "Smart Wallet" : "Standard Wallet";
-  const siweMessage = new SiweMessage(message);
-  const nonce = siweMessage.nonce;
-  const nonceCreatedAt = nonces.get(nonce);
-
-  if (!nonceCreatedAt || Date.now() - nonceCreatedAt > nonceMaxAgeMs) {
-    nonces.delete(nonce);
-    res.status(400).json({ error: "Invalid or expired nonce." });
-    return;
-  }
-
-  // viem.verifySiweMessage handles EOA, ERC-1271 (smart contract wallet),
-  // and EIP-6492 (counterfactually-deployed Smart Wallet) signatures.
-  let valid = false;
-  try {
-    valid = await verifyClient.verifySiweMessage({
-      message,
-      signature: signature as `0x${string}`,
-      nonce
+    res.setHeader("Set-Cookie", makeSessionCookie(token));
+    res.json({
+      authenticated: true,
+      address: session.address,
+      mode: session.mode,
+      isAdmin: isAdminAddress(session.address)
     });
-  } catch (err) {
-    console.error("SIWE verification error", err);
-  }
+  })
+);
 
-  if (!valid) {
-    res.status(401).json({ error: "Invalid wallet signature." });
-    return;
-  }
+app.post(
+  "/api/auth/logout",
+  writeLimiter,
+  asyncRoute(async (req, res) => {
+    const token = getAuthToken(req);
 
-  nonces.delete(nonce);
+    if (token) {
+      await deleteSession(token);
+    }
 
-  const token = randomUUID();
-  const session: Session = {
-    address: siweMessage.address,
-    createdAt: Date.now(),
-    mode: walletMode
-  };
+    res.setHeader("Set-Cookie", makeClearSessionCookie());
+    res.json({ ok: true });
+  })
+);
 
-  await saveSession(token, session);
-  res.setHeader("Set-Cookie", makeSessionCookie(token));
-  res.json({
-    authenticated: true,
-    address: session.address,
-    isAdmin: isAdminAddress(siweMessage.address),
-    mode: session.mode,
-    token
-  });
-});
+app.post(
+  "/api/auth/verify",
+  verifyLimiter,
+  asyncRoute(async (req, res) => {
+    const { message, mode, signature } = req.body as {
+      message?: unknown;
+      mode?: unknown;
+      signature?: unknown;
+    };
 
-app.get("/api/streak", async (req, res) => {
-  const { session, token } = await getRequestSession(req);
+    if (typeof message !== "string" || typeof signature !== "string") {
+      res.status(400).json({ error: "Invalid SIWE payload." });
+      return;
+    }
 
-  if (!token || !session) {
-    res.status(401).json({ authenticated: false });
-    return;
-  }
+    const walletMode: WalletMode = mode === "Smart Wallet" ? "Smart Wallet" : "Standard Wallet";
+    // viem's parser returns a partial object instead of throwing. siwe@3's
+    // constructor threw on malformed input, and an uncaught throw in an async
+    // express handler takes the whole process down.
+    const siweMessage = parseSiweMessage(message);
+    const nonce = siweMessage.nonce;
+    const messageDomain = siweMessage.domain?.toLowerCase();
 
-  const record = await getStreak(session.address);
+    if (!nonce || !siweMessage.address || !messageDomain) {
+      res.status(400).json({ error: "Invalid SIWE payload." });
+      return;
+    }
 
-  res.json(makeStreakStatus(record, false, isAdminAddress(session.address)));
-});
+    // Without this check any signature the user produced on another site is
+    // accepted here, as long as it carries a nonce issued by us: viem only
+    // compares the domain when one is passed in.
+    if (!allowedHosts.has(messageDomain)) {
+      res.status(401).json({ error: "Sign-in domain is not allowed." });
+      return;
+    }
 
-app.post("/api/streak/check-in", async (req, res) => {
-  const { session, token } = await getRequestSession(req);
+    const nonceCreatedAt = nonces.get(nonce);
 
-  if (!token || !session) {
-    res.status(401).json({ error: "Connect wallet to check in." });
-    return;
-  }
+    if (!nonceCreatedAt || Date.now() - nonceCreatedAt > nonceMaxAgeMs) {
+      nonces.delete(nonce);
+      res.status(400).json({ error: "Invalid or expired nonce." });
+      return;
+    }
 
-  const current = await getStreak(session.address);
-  const before = current?.lastCheckInAt;
-  const next = applyCheckIn(current, session.address);
-  const checkedInToday = before !== next.lastCheckInAt;
+    // viem.verifySiweMessage handles EOA, ERC-1271 (smart contract wallet),
+    // and EIP-6492 (counterfactually-deployed Smart Wallet) signatures.
+    let valid = false;
+    try {
+      valid = await verifyClient.verifySiweMessage({
+        message,
+        signature: signature as `0x${string}`,
+        domain: siweMessage.domain,
+        nonce
+      });
+    } catch (err) {
+      console.error("SIWE verification error", err);
+    }
 
-  await saveStreak(next);
+    if (!valid) {
+      res.status(401).json({ error: "Invalid wallet signature." });
+      return;
+    }
 
-  if (checkedInToday) {
-    void sendBaseNotification(
-      [session.address],
-      "Snake streak",
-      `Streak ${next.streak} saved. Next check-in opens in 24h.`,
-      "/"
-    ).catch((error) => console.error("Failed to send streak notification", error));
-  }
+    nonces.delete(nonce);
 
-  res.json(makeStreakStatus(next, checkedInToday, isAdminAddress(session.address)));
-});
+    const token = randomUUID();
+    const session: Session = {
+      address: siweMessage.address,
+      createdAt: Date.now(),
+      lastSeenAt: Date.now(),
+      mode: walletMode
+    };
 
-app.post("/api/admin/notify-random", async (req, res) => {
-  const { session, token } = await getRequestSession(req);
+    await saveSession(token, session);
+    res.setHeader("Set-Cookie", makeSessionCookie(token));
+    res.json({
+      authenticated: true,
+      address: session.address,
+      isAdmin: isAdminAddress(session.address),
+      mode: session.mode,
+      token
+    });
+  })
+);
 
-  if (!token || !session || !isAdminAddress(session.address)) {
-    res.status(403).json({ error: "Admin wallet required." });
-    return;
-  }
+app.get(
+  "/api/streak",
+  readLimiter,
+  asyncRoute(async (req, res) => {
+    const { session, token } = await getRequestSession(req);
 
-  if (!baseNotificationsApiKey || !baseAppUrl) {
-    res.status(501).json({ error: "Base notification env is not configured." });
-    return;
-  }
+    if (!token || !session) {
+      res.status(401).json({ authenticated: false });
+      return;
+    }
 
-  const audience = await getNotificationAudience();
+    const record = await getStreak(session.address);
 
-  if (audience.length === 0) {
-    res.json({ failedCount: 0, sentCount: 0 });
-    return;
-  }
+    res.json(makeStreakStatus(record, false, isAdminAddress(session.address)));
+  })
+);
 
-  const text = notificationTexts[Math.floor(Math.random() * notificationTexts.length)];
-  // Include short date in title so the same text isn't considered identical
-  // across days — Base deduplicates identical (title+message) within 24 hours.
-  const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-  const result = await sendBaseNotification(audience, `Snake • ${today}`, text, "/");
+app.post(
+  "/api/streak/check-in",
+  writeLimiter,
+  requireAllowedOrigin,
+  asyncRoute(async (req, res) => {
+    const { session, token } = await getRequestSession(req);
 
-  res.json({ ...result, audienceCount: audience.length });
-});
+    if (!token || !session) {
+      res.status(401).json({ error: "Connect wallet to check in." });
+      return;
+    }
 
-app.post("/api/player/record", async (req, res) => {
-  const { session } = await getRequestSession(req);
+    const current = await getStreak(session.address);
+    const before = current?.lastCheckInAt;
+    const next = applyCheckIn(current, session.address);
+    const checkedInToday = before !== next.lastCheckInAt;
 
-  if (!session) {
-    res.status(401).json({ error: "Not authenticated." });
-    return;
-  }
+    await saveStreak(next);
 
-  const address = session.address.toLowerCase();
+    if (checkedInToday) {
+      void sendBaseNotification(
+        [session.address],
+        "Snake streak",
+        `Streak ${next.streak} saved. Next check-in opens in 24h.`,
+        "/"
+      ).catch((error) => console.error("Failed to send streak notification", error));
+    }
 
-  if (pool) {
-    await pool.query(
-      `INSERT INTO recorded_runs (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
-      [address]
-    );
-  } else {
-    recordedPlayers.add(address);
-  }
+    res.json(makeStreakStatus(next, checkedInToday, isAdminAddress(session.address)));
+  })
+);
 
-  res.json({ ok: true });
-});
+app.post(
+  "/api/admin/notify-random",
+  notifyLimiter,
+  requireAllowedOrigin,
+  asyncRoute(async (req, res) => {
+    const { session, token } = await getRequestSession(req);
+
+    if (!token || !session || !isAdminAddress(session.address)) {
+      res.status(403).json({ error: "Admin wallet required." });
+      return;
+    }
+
+    if (!baseNotificationsApiKey || !baseAppUrl) {
+      res.status(501).json({ error: "Base notification env is not configured." });
+      return;
+    }
+
+    const audience = await getNotificationAudience();
+
+    if (audience.length === 0) {
+      res.json({ failedCount: 0, sentCount: 0 });
+      return;
+    }
+
+    const text = notificationTexts[Math.floor(Math.random() * notificationTexts.length)];
+    // Include short date in title so the same text isn't considered identical
+    // across days — Base deduplicates identical (title+message) within 24 hours.
+    const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    const result = await sendBaseNotification(audience, `Snake • ${today}`, text, "/");
+
+    res.json({ ...result, audienceCount: audience.length });
+  })
+);
+
+app.post(
+  "/api/player/record",
+  writeLimiter,
+  requireAllowedOrigin,
+  asyncRoute(async (req, res) => {
+    const { session } = await getRequestSession(req);
+
+    if (!session) {
+      res.status(401).json({ error: "Not authenticated." });
+      return;
+    }
+
+    const address = session.address.toLowerCase();
+
+    if (pool) {
+      await pool.query(
+        `INSERT INTO recorded_runs (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
+        [address]
+      );
+    } else {
+      recordedPlayers.add(address);
+    }
+
+    res.json({ ok: true });
+  })
+);
 
 // Paymaster proxy — forwards JSON-RPC to CDP Paymaster while keeping
 // the API key server-side. Only allows the methods needed for sponsorship.
@@ -668,36 +953,103 @@ const allowedPaymasterMethods = new Set([
   "pimlico_getUserOperationGasPrice"
 ]);
 
-app.post("/api/paymaster", async (req, res) => {
-  if (!cdpPaymasterUrl) {
-    res.status(503).json({ error: "Paymaster is not configured." });
+// Sponsorship requests arrive from the wallet infrastructure, not from our
+// frontend — the paymasterService URL is handed to the wallet — so there is no
+// session and no Origin to check here. What we can bound is how much any one
+// smart account draws, plus a ceiling for the whole service. The contract and
+// call policy allowlist itself lives in the CDP dashboard.
+const consumePaymasterSender = createRateLimiter("paymaster-sender", 60, 60 * 60 * 1000);
+const consumePaymasterGlobal = createRateLimiter("paymaster-global", 2000, 60 * 60 * 1000);
+
+function getUserOperationSender(params: unknown): string | null {
+  if (!Array.isArray(params) || params.length === 0) {
+    return null;
+  }
+
+  const userOperation = params[0] as { sender?: unknown } | null;
+
+  return typeof userOperation?.sender === "string" ? userOperation.sender.toLowerCase() : null;
+}
+
+app.post(
+  "/api/paymaster",
+  asyncRoute(async (req, res) => {
+    if (!cdpPaymasterUrl) {
+      res.status(503).json({ error: "Paymaster is not configured." });
+      return;
+    }
+
+    const body = req.body as { method?: unknown; jsonrpc?: unknown; params?: unknown };
+    if (
+      typeof body?.method !== "string" ||
+      !allowedPaymasterMethods.has(body.method) ||
+      (body.jsonrpc !== undefined && body.jsonrpc !== "2.0") ||
+      (body.params !== undefined && !Array.isArray(body.params))
+    ) {
+      res.status(400).json({ error: "Method not allowed." });
+      return;
+    }
+
+    if (!consumePaymasterGlobal("all").allowed) {
+      console.warn("Paymaster global rate limit hit");
+      res.status(429).json({ error: "Sponsorship temporarily unavailable." });
+      return;
+    }
+
+    const sender = getUserOperationSender(body.params);
+
+    if (sender && !consumePaymasterSender(sender).allowed) {
+      console.warn("Paymaster per-sender rate limit hit", sender);
+      res.status(429).json({ error: "Sponsorship limit reached for this account." });
+      return;
+    }
+
+    try {
+      const response = await fetchWithTimeout(cdpPaymasterUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req.body)
+      });
+      const data = await response.json();
+      res.status(response.status).json(data);
+    } catch (error) {
+      console.error("Paymaster proxy error", error);
+      res.status(502).json({ error: "Paymaster upstream error." });
+    }
+  })
+);
+
+app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (res.headersSent) {
     return;
   }
 
-  const body = req.body as { method?: unknown; jsonrpc?: unknown; params?: unknown };
-  if (
-    typeof body?.method !== "string" ||
-    !allowedPaymasterMethods.has(body.method) ||
-    (body.jsonrpc !== undefined && body.jsonrpc !== "2.0") ||
-    (body.params !== undefined && !Array.isArray(body.params))
-  ) {
-    res.status(400).json({ error: "Method not allowed." });
+  // Malformed JSON is the caller's mistake, not ours.
+  if (error instanceof SyntaxError && "body" in error) {
+    res.status(400).json({ error: "Invalid JSON body." });
     return;
   }
 
-  try {
-    const response = await fetch(cdpPaymasterUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req.body)
-    });
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (error) {
-    console.error("Paymaster proxy error", error);
-    res.status(502).json({ error: "Paymaster upstream error." });
-  }
+  console.error("Unhandled route error", error);
+  res.status(500).json({ error: "Internal error." });
 });
+
+// A rejected promise that escapes a handler used to kill the process, and with
+// it every in-memory session and streak. Log and keep serving instead.
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception", error);
+});
+
+const sessionCleanupIntervalMs = 6 * 60 * 60 * 1000;
+setInterval(() => {
+  void cleanupExpiredSessions().catch((error) => {
+    console.error("Session cleanup failed", error);
+  });
+}, sessionCleanupIntervalMs).unref();
 
 app.listen(port, () => {
   console.log(`Snake backend listening on http://localhost:${port}`);

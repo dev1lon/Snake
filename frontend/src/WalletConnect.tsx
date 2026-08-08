@@ -130,6 +130,7 @@ export function WalletConnect() {
   const [authState, setAuthState] = useState<AuthState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const autoAuthRef = useRef<string | null>(null);
 
   const baseAccountConnector = useMemo(
@@ -234,6 +235,32 @@ export function WalletConnect() {
     }
   };
 
+  // Sign in with the wallet that is already connected. Used by the automatic
+  // attempt below and by the explicit button when that attempt doesn't land —
+  // outside Base App the signature opens a popup, which browsers only allow
+  // reliably from a click.
+  const signIn = async (showError = true) => {
+    if (!address) {
+      return;
+    }
+
+    if (showError) setError(null);
+    setIsSigningIn(true);
+
+    try {
+      await performSiwe(
+        address as Address,
+        base.id,
+        activeConnector?.id === "baseAccount" ? "Smart Wallet" : "Standard Wallet"
+      );
+    } catch (caught) {
+      if (showError) setError(getFriendlyWalletError(caught));
+      throw caught;
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
   // Auto-authenticate after wagmi reconnect restores the session.
   // Inside Base App, signMessageAsync on Smart Wallet completes silently.
   useEffect(() => {
@@ -244,7 +271,7 @@ export function WalletConnect() {
     if (activeConnector?.id !== "baseAccount") return;
 
     autoAuthRef.current = address;
-    void performSiwe(address as Address, base.id, "Smart Wallet").catch((err) => {
+    void signIn(false).catch((err) => {
       console.warn("Auto SIWE failed", err);
       autoAuthRef.current = null;
     });
@@ -292,6 +319,10 @@ export function WalletConnect() {
   const displayAddress = authState?.address ?? address;
   const basename = useBasename(displayAddress as Address | undefined);
   const displayName = basename ?? formatAddress(displayAddress);
+  // Connected but no server session: the silent attempt was blocked, or this
+  // is an injected wallet, which never signs in automatically. Without this
+  // button the only way out was to disconnect and reconnect.
+  const needsSignIn = sessionChecked && isConnected && Boolean(address) && !authState && !isSigningIn;
 
   return (
     <div className="wallet-widget">
@@ -301,6 +332,16 @@ export function WalletConnect() {
             <span>{authState?.mode ?? "Wallet"}</span>
             <strong title={displayAddress}>{displayName}</strong>
           </div>
+          {needsSignIn && (
+            <button
+              className="wallet-signin"
+              type="button"
+              title="Sign in to save streaks"
+              onClick={() => void signIn().catch(() => undefined)}
+            >
+              Sign in
+            </button>
+          )}
           <button type="button" title="Disconnect wallet" aria-label="Disconnect wallet" onClick={disconnectWallet}>
             <LogOut />
           </button>

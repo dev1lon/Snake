@@ -10,7 +10,7 @@
     "lint": "tsc -b --noEmit"
   },
   "dependencies": {
-    "@base-org/account": "latest",
+    "@base-org/account": "2.5.5",
     "@tanstack/react-query": "^5.100.9",
     "buffer": "^6.0.3",
     "lucide-react": "^0.477.0",

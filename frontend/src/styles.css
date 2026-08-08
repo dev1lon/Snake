@@ -23,6 +23,50 @@ body {
 
 button { font: inherit; user-select: none; -webkit-tap-highlight-color: transparent; cursor: pointer; }
 
+/* ── Error boundary fallback ────────────────────────────────── */
+.app-error {
+  position: relative;
+  z-index: 2;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+.app-error h1 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.app-error p { color: #8A95A5; font-size: 0.9rem; max-width: 32ch; }
+
+.app-error button {
+  padding: 10px 22px;
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 10px;
+  background: rgba(0, 229, 255, 0.12);
+  color: #00E5FF;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.app-error code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  color: #5C6A7D;
+  max-width: 44ch;
+  word-break: break-word;
+}
+
 /* ── System grid ────────────────────────────────────────────── */
 .gs-grid-bg {
   position: fixed;
@@ -552,6 +596,19 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   justify-content: center;
 }
 .gs-header .wallet-connected button svg { width: 12px; height: 12px; }
+/* Overrides the square icon-button sizing above — this one holds text. */
+.gs-header .wallet-connected button.wallet-signin {
+  width: auto;
+  height: auto;
+  padding: 4px 9px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.12);
+  border: 1px solid rgba(0, 229, 255, 0.38);
+}
 .gs-header .wallet-error { font-size: 0.65rem; }
 
 .gs-end-screen {

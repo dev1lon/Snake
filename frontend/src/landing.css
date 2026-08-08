@@ -191,6 +191,19 @@
   justify-content: center;
 }
 .lnd-wallet-wrap .wallet-connected button svg { width: 12px; height: 12px; }
+/* Overrides the square icon-button sizing above — this one holds text. */
+.lnd-wallet-wrap .wallet-connected button.wallet-signin {
+  width: auto;
+  height: auto;
+  padding: 4px 9px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #00E5FF;
+  background: rgba(0, 229, 255, 0.12);
+  border: 1px solid rgba(0, 229, 255, 0.38);
+}
 .lnd-wallet-wrap .wallet-error { font-size: 0.65rem; }
 
 /* ── Main scrollable area ───────────────────────────────────── */

@@ -15,7 +15,10 @@ const L2ResolverAbi = [
   }
 ] as const;
 
-const client = createPublicClient({ chain: base, transport: http() });
+const client = createPublicClient({
+  chain: base,
+  transport: http(import.meta.env.VITE_RPC_URL)
+});
 const cache = new Map<string, string | null>();
 
 function getReverseNode(address: Address) {

@@ -5,6 +5,10 @@ import { baseAccount, injected } from "wagmi/connectors";
 
 export const queryClient = new QueryClient();
 
+// Falls back to the public Base endpoint, which rate-limits hard under real
+// traffic. Set VITE_RPC_URL to a provider key restricted to your domain.
+const rpcUrl = import.meta.env.VITE_RPC_URL;
+
 export const wagmiConfig = createConfig({
   chains: [base],
   connectors: [
@@ -14,7 +18,7 @@ export const wagmiConfig = createConfig({
     injected()
   ],
   transports: {
-    [base.id]: http()
+    [base.id]: http(rpcUrl)
   }
 });
 
