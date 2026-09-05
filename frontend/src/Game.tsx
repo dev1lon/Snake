@@ -3,20 +3,41 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsRight,
   ChevronUp,
+  Heart,
   Pause,
   Play,
+  Plus,
   RotateCcw,
-  Save
+  Save,
+  X
 } from "lucide-react";
 import { waitForCallsStatus, waitForTransactionReceipt } from "@wagmi/core";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { encodeFunctionData, type Address, type Hex } from "viem";
 import { useAccount, useCapabilities, useSendCalls, useSwitchChain, useWriteContract } from "wagmi";
 import { base } from "wagmi/chains";
 import { API_URL } from "./api";
 import { snakeRecordsAbi } from "./contracts";
+import {
+  CLASSIC_BOARD,
+  clampLevel,
+  getLevel,
+  getLevelProgress,
+  LAST_LEVEL_INDEX,
+  storeLevelProgress,
+  type BoardConfig
+} from "./levels";
+import {
+  PAYMENTS_ARE_LIVE,
+  purchasePack,
+  REVIVE_PACKS,
+  spendRevive,
+  useRevives,
+  type RevivePack
+} from "./revives";
 import { wagmiConfig } from "./wagmi";
 import { authHeaders, getStoredIsAdmin, WalletConnect } from "./WalletConnect";
 
@@ -36,16 +57,25 @@ type GameState = {
   score: number;
   moves: number;
   status: GameStatus;
+  // The board travels with the state: in level mode every level is a different
+  // grid, and the reducer, the renderer and the HUD all read it from here.
+  cols: number;
+  rows: number;
+  goal: number;
 };
 
 type Action =
   | { type: "start" }
   | { type: "pause" }
   | { type: "reset" }
+  | { type: "loadBoard"; board: BoardConfig; start?: boolean }
+  | { type: "revive" }
   | { type: "move"; direction: Direction }
   | { type: "turnAndTick"; direction: Direction }
   | { type: "ensureFood" }
   | { type: "tick" };
+
+type Mode = "classic" | "levels";
 
 type StreakState = {
   authenticated: boolean;
@@ -57,9 +87,10 @@ type StreakState = {
   streak: number;
 };
 
-const BOARD_CELLS = 16;
-const TOTAL_CELLS = BOARD_CELLS * BOARD_CELLS;
 const START_LENGTH = 1;
+// uint16 `cells` in the contract reverts above 256, so a run on a bigger level
+// board is reported clamped rather than reverting on save.
+const MAX_ONCHAIN_CELLS = 256;
 const STEP_MS = 236;
 const BEST_RUN_STORAGE_KEY = "snake.bestRunCells";
 const DEFAULT_RECORD_CONTRACT_ADDRESS = "0x9e5d82E6B6419C066Bc57F5a70116659c468d780" as const;
@@ -93,22 +124,24 @@ function isOpposite(a: Direction, b: Direction) {
   );
 }
 
-function makeInitialSnake(): Point[] {
-  const y = Math.floor(BOARD_CELLS / 2);
-  const x = Math.floor(BOARD_CELLS / 2);
-
-  return [{ x, y }];
+function makeInitialSnake(cols: number, rows: number): Point[] {
+  return [{ x: Math.floor(cols / 2), y: Math.floor(rows / 2) }];
 }
 
-function getFood(snake: Point[]): Point | null {
+function pointKey(point: Point) {
+  return `${point.x},${point.y}`;
+}
+
+function getFood(snake: Point[], cols: number, rows: number): Point | null {
+  // A set, not an inner some(): the largest level is 1024 cells and this runs
+  // every time the snake eats.
+  const taken = new Set(snake.map(pointKey));
   const freeCells: Point[] = [];
 
-  for (let y = 0; y < BOARD_CELLS; y += 1) {
-    for (let x = 0; x < BOARD_CELLS; x += 1) {
-      const cell = { x, y };
-
-      if (!snake.some((part) => samePoint(part, cell))) {
-        freeCells.push(cell);
+  for (let y = 0; y < rows; y += 1) {
+    for (let x = 0; x < cols; x += 1) {
+      if (!taken.has(`${x},${y}`)) {
+        freeCells.push({ x, y });
       }
     }
   }
@@ -120,29 +153,61 @@ function getFood(snake: Point[]): Point | null {
   return freeCells[Math.floor(Math.random() * freeCells.length)];
 }
 
-function isFoodValid(food: Point | null, snake: Point[]) {
+function isFoodValid(food: Point | null, snake: Point[], cols: number, rows: number) {
   return Boolean(
     food &&
       food.x >= 0 &&
       food.y >= 0 &&
-      food.x < BOARD_CELLS &&
-      food.y < BOARD_CELLS &&
+      food.x < cols &&
+      food.y < rows &&
       !snake.some((part) => samePoint(part, food))
   );
 }
 
-function createGame(status: GameStatus = "idle"): GameState {
-  const snake = makeInitialSnake();
+function createGame(board: BoardConfig = CLASSIC_BOARD, status: GameStatus = "idle"): GameState {
+  const snake = makeInitialSnake(board.cols, board.rows);
 
   return {
     snake,
-    food: getFood(snake),
+    food: getFood(snake, board.cols, board.rows),
     direction: "right",
     queuedDirection: "right",
     score: 0,
     moves: 0,
-    status
+    status,
+    cols: board.cols,
+    rows: board.rows,
+    goal: board.goal
   };
+}
+
+function boardOf(state: GameState): BoardConfig {
+  return { cols: state.cols, rows: state.rows, goal: state.goal };
+}
+
+// After a crash the snake is still standing where it died, so a revive only
+// needs a direction that doesn't walk straight back into the wall or the body.
+function findSafeDirection(state: GameState): Direction {
+  const head = state.snake[0];
+  const body = new Set(state.snake.slice(0, -1).map(pointKey));
+  const candidates: Direction[] = [state.direction, "up", "right", "down", "left"];
+
+  for (const direction of candidates) {
+    if (state.snake.length > 1 && isOpposite(state.direction, direction)) {
+      continue;
+    }
+
+    const vector = vectors[direction];
+    const next = { x: head.x + vector.x, y: head.y + vector.y };
+    const inBounds = next.x >= 0 && next.y >= 0 && next.x < state.cols && next.y < state.rows;
+
+    if (inBounds && !body.has(pointKey(next))) {
+      return direction;
+    }
+  }
+
+  // Fully boxed in — rare, and the player at least gets to see it happen.
+  return state.direction;
 }
 
 function calculateScore(length: number, moves: number, won: boolean) {
@@ -255,11 +320,15 @@ function supportsBatching(capabilities: WalletCapabilities | undefined) {
 }
 
 function ensureFoodOnState(state: GameState): GameState {
-  if (state.status === "won" || state.snake.length >= TOTAL_CELLS || isFoodValid(state.food, state.snake)) {
+  if (
+    state.status === "won" ||
+    state.snake.length >= state.cols * state.rows ||
+    isFoodValid(state.food, state.snake, state.cols, state.rows)
+  ) {
     return state;
   }
 
-  return { ...state, food: getFood(state.snake) };
+  return { ...state, food: getFood(state.snake, state.cols, state.rows) };
 }
 
 function advanceGame(state: GameState, forcedDirection?: Direction): GameState {
@@ -273,14 +342,14 @@ function advanceGame(state: GameState, forcedDirection?: Direction): GameState {
     cleanState.snake.length > 1 && isOpposite(cleanState.direction, requestedDirection)
       ? cleanState.direction
       : requestedDirection;
-  const currentFood = isFoodValid(cleanState.food, cleanState.snake)
+  const currentFood = isFoodValid(cleanState.food, cleanState.snake, cleanState.cols, cleanState.rows)
     ? cleanState.food
-    : getFood(cleanState.snake);
+    : getFood(cleanState.snake, cleanState.cols, cleanState.rows);
   const head = cleanState.snake[0];
   const vector = vectors[direction];
   const nextHead = { x: head.x + vector.x, y: head.y + vector.y };
   const outOfBounds =
-    nextHead.x < 0 || nextHead.y < 0 || nextHead.x >= BOARD_CELLS || nextHead.y >= BOARD_CELLS;
+    nextHead.x < 0 || nextHead.y < 0 || nextHead.x >= cleanState.cols || nextHead.y >= cleanState.rows;
   const eating = currentFood ? samePoint(nextHead, currentFood) : false;
   const collisionBody = eating ? cleanState.snake : cleanState.snake.slice(0, -1);
   const selfHit = collisionBody.some((part) => samePoint(part, nextHead));
@@ -298,13 +367,15 @@ function advanceGame(state: GameState, forcedDirection?: Direction): GameState {
   const nextSnake = eating
     ? [nextHead, ...cleanState.snake]
     : [nextHead, ...cleanState.snake.slice(0, -1)];
-  const won = nextSnake.length === TOTAL_CELLS;
+  // Classic keeps the fill-the-board rule (goal === every cell); a level is
+  // cleared at its quota.
+  const won = nextSnake.length >= cleanState.goal;
   const moves = cleanState.moves + 1;
 
   return {
     ...cleanState,
     snake: nextSnake,
-    food: won ? null : eating || !currentFood ? getFood(nextSnake) : currentFood,
+    food: won ? null : eating || !currentFood ? getFood(nextSnake, cleanState.cols, cleanState.rows) : currentFood,
     direction,
     queuedDirection: direction,
     moves,
@@ -317,7 +388,7 @@ function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case "start":
       if (state.status === "idle" || state.status === "lost" || state.status === "won") {
-        return createGame("running");
+        return createGame(boardOf(state), "running");
       }
 
       return { ...state, status: "running" };
@@ -334,7 +405,27 @@ function reducer(state: GameState, action: Action): GameState {
       return state;
 
     case "reset":
-      return createGame("idle");
+      return createGame(boardOf(state), "idle");
+
+    case "loadBoard":
+      return createGame(action.board, action.start ? "running" : "idle");
+
+    // A revive resumes the run that just ended: same snake, same score, same
+    // move count — only the direction is nudged somewhere survivable, and the
+    // game waits paused so the player isn't dropped straight back into motion.
+    case "revive": {
+      if (state.status !== "lost") {
+        return state;
+      }
+
+      const direction = findSafeDirection(state);
+
+      return {
+        ...ensureFoodOnState({ ...state, status: "paused" }),
+        direction,
+        queuedDirection: direction
+      };
+    }
 
     case "move":
       if (state.snake.length > 1 && isOpposite(state.direction, action.direction)) {
@@ -367,6 +458,8 @@ function reducer(state: GameState, action: Action): GameState {
 
 function Game() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const mode: Mode = searchParams.get("mode") === "levels" ? "levels" : "classic";
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const coinImageRef = useRef<HTMLImageElement | null>(null);
   const animationFrameRef = useRef(0);
@@ -386,7 +479,12 @@ function Game() {
       isMountedRef.current = false;
     };
   }, []);
-  const [game, dispatch] = useReducer(reducer, undefined, () => createGame());
+  const [levelIndex, setLevelIndex] = useState(getLevelProgress);
+  const [game, dispatch] = useReducer(reducer, undefined, () =>
+    createGame(searchParams.get("mode") === "levels" ? getLevel(getLevelProgress()) : CLASSIC_BOARD)
+  );
+  const [isShopOpen, setIsShopOpen] = useState(false);
+  const revives = useRevives();
   const [activeDirection, setActiveDirection] = useState<Direction | null>(null);
   const [coinReady, setCoinReady] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -411,7 +509,10 @@ function Game() {
   });
   const { switchChainAsync } = useSwitchChain();
 
-  const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
+  const totalCells = game.cols * game.rows;
+  const targetBoard = mode === "levels" ? getLevel(levelIndex) : CLASSIC_BOARD;
+  const isLastLevel = levelIndex >= LAST_LEVEL_INDEX;
+  const filledPercent = Math.min(100, Math.round((game.snake.length / game.goal) * 100));
   const gameEnded = game.status === "lost" || game.status === "won";
   const currentRunCells = Math.max(0, game.snake.length - START_LENGTH);
   const shownBestRunCells = Math.max(bestRunCells, currentRunCells);
@@ -429,6 +530,34 @@ function Game() {
       setRecordSaved(false);
     }
   }, [game.status]);
+
+  // The route keeps this component mounted when the mode changes, so the board
+  // is synced here rather than at mount. Comparing first keeps a board that was
+  // just loaded on purpose (next level) from being reset right back to idle.
+  useEffect(() => {
+    if (
+      game.cols === targetBoard.cols &&
+      game.rows === targetBoard.rows &&
+      game.goal === targetBoard.goal
+    ) {
+      return;
+    }
+
+    dispatch({ type: "loadBoard", board: targetBoard });
+  }, [targetBoard.cols, targetBoard.rows, targetBoard.goal, game.cols, game.rows, game.goal]);
+
+  // Clearing a level unlocks the next one for good.
+  useEffect(() => {
+    if (mode !== "levels" || game.status !== "won") {
+      return;
+    }
+
+    const unlocked = clampLevel(levelIndex + 1);
+
+    if (unlocked > getLevelProgress()) {
+      storeLevelProgress(unlocked);
+    }
+  }, [game.status, levelIndex, mode]);
 
   const queueDirection = (direction: Direction) => {
     const liveGame = gameRef.current;
@@ -527,10 +656,14 @@ function Game() {
   }, [address, isConnected]);
 
   useEffect(() => {
-    if (game.status !== "won" && game.snake.length < TOTAL_CELLS && !isFoodValid(game.food, game.snake)) {
+    if (
+      game.status !== "won" &&
+      game.snake.length < totalCells &&
+      !isFoodValid(game.food, game.snake, game.cols, game.rows)
+    ) {
       dispatch({ type: "ensureFood" });
     }
-  }, [game.food, game.snake, game.status]);
+  }, [game.food, game.snake, game.status, game.cols, game.rows, totalCells]);
 
   useEffect(() => {
     if (!gameEnded) {
@@ -569,6 +702,17 @@ function Game() {
         target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
 
       if (isTyping) {
+        return;
+      }
+
+      // The shop sits over the board: keys belong to the dialog while it's open,
+      // otherwise a mistyped key restarts the run behind it.
+      if (isShopOpen) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setIsShopOpen(false);
+        }
+
         return;
       }
 
@@ -617,7 +761,7 @@ function Game() {
       window.removeEventListener("keydown", handleKeyDown, { capture: true });
       window.removeEventListener("keyup", handleKeyUp, { capture: true });
     };
-  }, [game.status]);
+  }, [game.status, isShopOpen]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -632,20 +776,23 @@ function Game() {
       return;
     }
 
-    const logicalSize = 720;
+    // Logical width is fixed; height follows the board so a 32×16 level draws
+    // square cells instead of stretched ones. The panel matches via aspect-ratio.
+    const logicalWidth = 720;
     const drawFrame = (now: number) => {
       const devicePixelRatio = window.devicePixelRatio || 1;
       const lastFrameAt = lastFrameAtRef.current || now;
       const delta = Math.min(80, now - lastFrameAt);
       const liveGame = gameRef.current;
+      const logicalHeight = Math.round((logicalWidth * liveGame.rows) / liveGame.cols);
 
       lastFrameAtRef.current = now;
       if (
-        canvas.width !== logicalSize * devicePixelRatio ||
-        canvas.height !== logicalSize * devicePixelRatio
+        canvas.width !== logicalWidth * devicePixelRatio ||
+        canvas.height !== logicalHeight * devicePixelRatio
       ) {
-        canvas.width = logicalSize * devicePixelRatio;
-        canvas.height = logicalSize * devicePixelRatio;
+        canvas.width = logicalWidth * devicePixelRatio;
+        canvas.height = logicalHeight * devicePixelRatio;
         context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
       }
 
@@ -667,7 +814,7 @@ function Game() {
         snake: interpolateSnake(previousSnakeRef.current, targetSnakeRef.current, easedProgress)
       };
 
-      drawGame(context, logicalSize, renderGame, coinReady ? coinImageRef.current : null);
+      drawGame(context, logicalWidth, logicalHeight, renderGame, coinReady ? coinImageRef.current : null);
 
       animationFrameRef.current = requestAnimationFrame(drawFrame);
     };
@@ -680,6 +827,10 @@ function Game() {
 
   const statusText = useMemo(() => {
     if (game.status === "won") {
+      if (mode === "levels") {
+        return isLastLevel ? "All levels clear" : "Level clear";
+      }
+
       return "Screen filled";
     }
 
@@ -696,7 +847,7 @@ function Game() {
     }
 
     return "Ready";
-  }, [game.status]);
+  }, [game.status, isLastLevel, mode]);
 
   const releaseFocus = () => {
     requestAnimationFrame(() => {
@@ -720,6 +871,38 @@ function Game() {
     dispatch({ type: "start" });
     releaseFocus();
   };
+
+  // No balance means the shop, not a dead end: buying while dead revives on the
+  // spot, which is the whole point of the $1 tier.
+  const useRevive = () => {
+    if (!spendRevive()) {
+      setIsShopOpen(true);
+      return;
+    }
+
+    dispatch({ type: "revive" });
+    releaseFocus();
+  };
+
+  const buyPack = (pack: RevivePack) => {
+    purchasePack(pack);
+    setIsShopOpen(false);
+
+    if (gameRef.current.status === "lost" && spendRevive()) {
+      dispatch({ type: "revive" });
+    }
+
+    releaseFocus();
+  };
+
+  const goToNextLevel = () => {
+    const next = clampLevel(levelIndex + 1);
+
+    setLevelIndex(next);
+    dispatch({ type: "loadBoard", board: getLevel(next), start: true });
+    releaseFocus();
+  };
+
 
   const exitGame = () => {
     setRecordStatus(null);
@@ -784,7 +967,12 @@ function Game() {
       throw new Error("Connect wallet first");
     }
 
-    const args = [BigInt(game.score), game.snake.length, game.status === "won", BigInt(game.moves)] as const;
+    const args = [
+      BigInt(game.score),
+      Math.min(game.snake.length, MAX_ONCHAIN_CELLS),
+      game.status === "won",
+      BigInt(game.moves)
+    ] as const;
 
     await switchChainAsync({ chainId: base.id });
 
@@ -978,8 +1166,26 @@ function Game() {
       {/* Stats bar */}
       <div className="gs-stats-bar">
         <div className="gs-stats-left">
-          <div className="gs-pill">{game.snake.length}/{TOTAL_CELLS}</div>
-          <div className="gs-pill">{filledPercent}%</div>
+          {mode === "levels" && (
+            <div className="gs-pill gs-pill-level">
+              LVL {levelIndex + 1}
+              <small>{game.cols}×{game.rows}</small>
+            </div>
+          )}
+          <div className="gs-pill">{game.snake.length}/{game.goal}</div>
+          {/* The level pill already takes the room the percentage used to have. */}
+          {mode === "classic" && <div className="gs-pill">{filledPercent}%</div>}
+          <button
+            className="gs-revive-pill"
+            type="button"
+            onClick={() => setIsShopOpen(true)}
+            title="Revives"
+            aria-label={`Revives: ${revives}`}
+          >
+            <Heart size={13} />
+            <strong>{revives}</strong>
+            <Plus size={11} />
+          </button>
         </div>
         <div className="gs-stats-right">
           {(isAdmin || streak?.isAdmin) && (
@@ -1020,7 +1226,10 @@ function Game() {
 
       {/* Game board */}
       <main className="gs-board-area">
-        <div className="gs-board-panel">
+        <div
+          className="gs-board-panel"
+          style={{ "--gs-board-aspect": game.cols / game.rows } as CSSProperties}
+        >
           <canvas ref={canvasRef} aria-label="Snake board" />
           {game.status === "paused" && (
             <div className="gs-pause-marks" aria-hidden="true">
@@ -1030,7 +1239,11 @@ function Game() {
           {game.status === "idle" && (
             <div className="gs-overlay" aria-live="polite">
               <strong>Press play</strong>
-              <p>Fill the board to finish the game.</p>
+              <p>
+                {mode === "levels"
+                  ? `Reach ${game.goal} cells to clear level ${levelIndex + 1}.`
+                  : "Fill the board to finish the game."}
+              </p>
               {streakStatus && <small>{streakStatus}</small>}
             </div>
           )}
@@ -1117,13 +1330,21 @@ function Game() {
             <div className="gs-end-title-wrap">
               <div className="gs-end-red-glow" />
               <h2 className={game.status === "won" ? "gs-end-title gs-end-title-win" : "gs-end-title"}>
-                {game.status === "won" ? (
+                {game.status !== "won" ? (
+                  <>
+                    GAME<br />OVER
+                  </>
+                ) : mode !== "levels" ? (
                   <>
                     SCREEN<br />FILLED
                   </>
+                ) : isLastLevel ? (
+                  <>
+                    ALL LEVELS<br />CLEAR
+                  </>
                 ) : (
                   <>
-                    GAME<br />OVER
+                    LEVEL {levelIndex + 1}<br />CLEAR
                   </>
                 )}
               </h2>
@@ -1141,6 +1362,21 @@ function Game() {
             </div>
 
             <div className="gs-end-actions">
+              {game.status === "lost" && (
+                <button className="gs-end-revive" type="button" onClick={useRevive}>
+                  <Heart />
+                  <span>{revives > 0 ? `Revive · ${revives} left` : "Revive · $1"}</span>
+                </button>
+              )}
+              {game.status === "won" && mode === "levels" && !isLastLevel && (
+                <button className="gs-end-next" type="button" onClick={goToNextLevel}>
+                  <ChevronsRight />
+                  <span>
+                    Level {levelIndex + 2} · {getLevel(levelIndex + 1).cols}×
+                    {getLevel(levelIndex + 1).rows}
+                  </span>
+                </button>
+              )}
               <button className="gs-end-save" type="button" disabled={isOnchainPending || recordSaved} onClick={saveRecord}>
                 <Save />
                 <span>{isOnchainPending ? "Saving..." : recordSaved ? "Saved" : "Save Record"}</span>
@@ -1156,6 +1392,55 @@ function Game() {
             </div>
           </div>
         </section>
+      )}
+
+      {isShopOpen && (
+        <div className="gs-shop" role="dialog" aria-modal="true" aria-label="Revives">
+          <div className="gs-shop-card">
+            <button
+              className="gs-shop-close"
+              type="button"
+              onClick={() => setIsShopOpen(false)}
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+
+            <h3>Revives</h3>
+            <p className="gs-shop-lead">
+              A revive puts you back exactly where you crashed — same length, same score.
+            </p>
+
+            <div className="gs-shop-balance">
+              <Heart size={14} />
+              <strong>{revives}</strong>
+              <span>in stock</span>
+            </div>
+
+            <div className="gs-shop-packs">
+              {REVIVE_PACKS.map((pack) => (
+                <button
+                  key={pack.id}
+                  className="gs-shop-pack"
+                  type="button"
+                  onClick={() => buyPack(pack)}
+                >
+                  <span className="gs-shop-pack-top">
+                    <strong>{pack.label}</strong>
+                    <em>${pack.priceUsd}</em>
+                  </span>
+                  <small>{pack.hint}</small>
+                </button>
+              ))}
+            </div>
+
+            {!PAYMENTS_ARE_LIVE && (
+              <p className="gs-shop-note">
+                Local build — nothing is charged. Packs are credited to this device only.
+              </p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1265,13 +1550,14 @@ function interpolateSnake(previousSnake: Point[], targetSnake: Point[], progress
 
 function drawGame(
   context: CanvasRenderingContext2D,
-  size: number,
+  width: number,
+  height: number,
   game: GameState,
   coinImage: HTMLImageElement | null
 ) {
-  const cell = size / BOARD_CELLS;
+  const cell = width / game.cols;
 
-  context.clearRect(0, 0, size, size);
+  context.clearRect(0, 0, width, height);
 
   if (game.food) {
     drawCoin(context, game.food, cell, coinImage);

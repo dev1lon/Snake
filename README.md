@@ -31,6 +31,35 @@ Two of them decide how the app behaves rather than just where it points:
   Without it both live in process memory, so they reset whenever the instance
   sleeps or redeploys.
 
+## Game modes
+
+- **Classic** (`/game?mode=classic`) — the 16×16 board, won by filling it.
+- **Levels** (`/game?mode=levels`) — six boards that double in size, alternating
+  wide and tall so the cells stay square: 8×4, 8×8, 16×8, 16×16, 32×16, 32×32.
+  Each one is cleared at a quota rather than a full fill (16 → 154 cells), and
+  the highest level reached is kept in `localStorage`. The ladder lives in
+  [levels.ts](frontend/src/levels.ts); 32×32 is the last level because smaller
+  cells stop being readable on a phone.
+
+## Revives
+
+Crashing offers a revive: the run resumes where it died, with the same length,
+score and move count. Balance and packs ($1 for one, $10 for twenty) live in
+[revives.ts](frontend/src/revives.ts).
+
+**This is a local build of the feature.** Nothing is charged, no wallet call is
+made, and a purchase only credits `localStorage` on that device plus a local
+ledger entry. Wiring real payments means a treasury address, a payment
+verification endpoint and a server-side balance — none of which exist yet.
+
+## Outside Base App
+
+The app is built for the Base App webview. A browser that isn't one gets a full
+screen gate pointing at the mini app instead of a half-working game, configured
+through `VITE_BASE_APP_LINK` (see [.env.example](.env.example)). Detection is
+heuristic and deliberately permissive; `?web=1` opens the web build anyway and
+dev servers never gate.
+
 ## Security posture
 
 - **Sponsorship.** `/api/paymaster` proxies the CDP paymaster so the API key

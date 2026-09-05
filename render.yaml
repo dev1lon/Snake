@@ -58,3 +58,9 @@ services:
       # Domain-restricted RPC key. Falls back to the public Base endpoint.
       - key: VITE_RPC_URL
         sync: false
+      # Where the "open in Base App" gate sends players who reached the site in
+      # a normal browser. Until it is set the gate shows with a disabled button.
+      - key: VITE_BASE_APP_LINK
+        sync: false
+      - key: VITE_BASE_APP_LABEL
+        sync: false

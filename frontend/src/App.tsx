@@ -1,6 +1,8 @@
 import { reconnect } from "@wagmi/core";
 import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { useBaseAppGate } from "./baseApp";
+import { BaseAppGate } from "./BaseAppGate";
 import Game from "./Game";
 import Landing from "./Landing";
 import { wagmiConfig } from "./wagmi";
@@ -9,9 +11,17 @@ import { wagmiConfig } from "./wagmi";
 // /game survives a refresh and can be linked to. Render already rewrites
 // every path to index.html.
 export default function App() {
+  const showBaseAppGate = useBaseAppGate();
+
   useEffect(() => {
     void reconnect(wagmiConfig);
   }, []);
+
+  // Outside Base App the wallet, sponsorship and notifications all dead-end, so
+  // the gate replaces the app rather than sitting on top of a broken one.
+  if (showBaseAppGate) {
+    return <BaseAppGate />;
+  }
 
   return (
     <BrowserRouter>

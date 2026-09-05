@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { getLevel, getLevelProgress } from "./levels";
 import { WalletConnect } from "./WalletConnect";
 import { useLiteEffects } from "./useLiteEffects";
 import "./landing.css";
@@ -6,6 +8,8 @@ import "./landing.css";
 export default function Landing() {
   const navigate = useNavigate();
   const liteEffects = useLiteEffects();
+  const [levelIndex] = useState(getLevelProgress);
+  const level = getLevel(levelIndex);
 
   return (
     <div className={`lnd-root${liteEffects ? " is-lite" : ""}`}>
@@ -26,7 +30,7 @@ export default function Landing() {
         {/* Scrollable content */}
         <main className="lnd-main">
           <h1 className="lnd-h1">
-            SLITHER.<br />EARN.
+            SLITHER.<br />SURVIVE.
           </h1>
           <p className="lnd-subtitle">
             The classic game, engineered for the Base network. Eat protocol tokens, grow your
@@ -47,10 +51,16 @@ export default function Landing() {
 
         </main>
 
-        {/* Pinned play button - always in view */}
+        {/* Pinned play buttons - always in view */}
         <div className="lnd-cta">
-          <button className="lnd-btn-play" type="button" onClick={() => navigate("/game")}>
-            PLAY GAME
+          <button className="lnd-btn-play" type="button" onClick={() => navigate("/game?mode=classic")}>
+            PLAY CLASSIC
+          </button>
+          <button className="lnd-btn-levels" type="button" onClick={() => navigate("/game?mode=levels")}>
+            <span>LEVELS</span>
+            <small>
+              LVL {levelIndex + 1} · {level.cols}×{level.rows}
+            </small>
           </button>
         </div>
       </div>
