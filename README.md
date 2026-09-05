@@ -54,11 +54,14 @@ verification endpoint and a server-side balance — none of which exist yet.
 
 ## Outside Base App
 
-The app is built for the Base App webview. A browser that isn't one gets a full
-screen gate pointing at the mini app instead of a half-working game, configured
-through `VITE_BASE_APP_LINK` (see [.env.example](.env.example)). Detection is
-heuristic and deliberately permissive; `?web=1` opens the web build anyway and
-dev servers never gate.
+The app is built for the Base App webview, and there is a gate screen that sends
+other browsers to the mini app instead of letting them into a half-working game.
+
+**It is off.** Production serves the open web app; the screen only appears when
+`VITE_REQUIRE_BASE_APP=true`, which is worth turning on once
+`VITE_BASE_APP_LINK` points somewhere (see [.env.example](.env.example)). `?gate=1`
+previews it meanwhile. With the gate on, detection is heuristic and deliberately
+permissive, `?web=1` walks through it, and dev servers never gate.
 
 ## Security posture
 

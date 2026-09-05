@@ -59,12 +59,22 @@ function hasSkipFlag() {
 }
 
 export function shouldShowBaseAppGate() {
-  // Escape hatches, in order: the build opts out, we're on a dev server, or the
-  // player asked for the browser build with ?web=1.
-  if (import.meta.env.VITE_REQUIRE_BASE_APP === "false" || import.meta.env.DEV) {
+  // ?gate=1 previews the screen anywhere, including while the gate is off.
+  try {
+    if (new URLSearchParams(window.location.search).get("gate") === "1") {
+      return true;
+    }
+  } catch {
+    // No location to read (SSR, sandboxed frame): fall through to the flag.
+  }
+
+  // Off unless the build asks for it. Production keeps serving the open web app
+  // the way it always did; flip VITE_REQUIRE_BASE_APP to "true" to close it.
+  if (import.meta.env.VITE_REQUIRE_BASE_APP !== "true" || import.meta.env.DEV) {
     return false;
   }
 
+  // ?web=1 lets a single browser through a gate that is otherwise on.
   if (hasSkipFlag()) {
     return false;
   }
