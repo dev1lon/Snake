@@ -11,29 +11,35 @@ export type RevivePack = {
 // The prices we intend to charge once payments are wired. Nothing is charged
 // today: a purchase credits the local balance and appends to a local ledger, so
 // whatever entitlement the server ends up owning can be reconciled against it.
-export const REVIVE_PACKS: RevivePack[] = [
-  {
-    id: "single",
-    revives: 1,
-    priceUsd: 1,
-    label: "1 revive",
-    hint: "Get back up exactly where you crashed"
-  },
-  {
-    id: "pack20",
-    revives: 20,
-    priceUsd: 10,
-    label: "20 revives",
-    hint: "Half price per revive. Buy as many packs as you want"
-  }
-];
+
+// The stocking-up offer, sold in the shop by the packful.
+export const PACK_REVIVE: RevivePack = {
+  id: "pack20",
+  revives: 20,
+  priceUsd: 10,
+  label: "20 revives",
+  hint: "Half price per revive"
+};
+
+// Sold only at the moment of the crash, where one revive is worth a dollar
+// because the run is still on the table. Deliberately absent from the shop.
+export const SINGLE_REVIVE: RevivePack = {
+  id: "single",
+  revives: 1,
+  priceUsd: 1,
+  label: "1 revive",
+  hint: "Get back up exactly where you crashed"
+};
 
 export const PAYMENTS_ARE_LIVE = false;
 
 type LedgerEntry = {
   at: number;
   packId: string;
+  // Price and revives are the totals for the whole purchase; quantity says how
+  // many packs made them up.
   priceUsd: number;
+  quantity: number;
   revives: number;
 };
 
@@ -98,13 +104,16 @@ export function getPurchaseLedger(): LedgerEntry[] {
 }
 
 // Local-only purchase: no wallet call, no money moves. The ledger entry is what
-// a real payment would later carry a tx hash for.
-export function purchasePack(pack: RevivePack) {
+// a real payment would later carry a tx hash for. Quantity is uncapped — the
+// shop lets a player take as many packs as they care to.
+export function purchasePack(pack: RevivePack, quantity = 1) {
+  const packs = Math.max(1, Math.floor(quantity));
   const entry: LedgerEntry = {
     at: Date.now(),
     packId: pack.id,
-    priceUsd: pack.priceUsd,
-    revives: pack.revives
+    priceUsd: pack.priceUsd * packs,
+    quantity: packs,
+    revives: pack.revives * packs
   };
 
   try {
@@ -114,7 +123,7 @@ export function purchasePack(pack: RevivePack) {
     // Ledger is a convenience for reconciliation, not a gate on the credit.
   }
 
-  return addRevives(pack.revives);
+  return addRevives(entry.revives);
 }
 
 export function useRevives() {

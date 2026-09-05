@@ -6,6 +6,7 @@ import {
   ChevronsRight,
   ChevronUp,
   Heart,
+  Minus,
   Pause,
   Play,
   Plus,
@@ -31,12 +32,12 @@ import {
   type BoardConfig
 } from "./levels";
 import {
+  PACK_REVIVE,
   PAYMENTS_ARE_LIVE,
   purchasePack,
-  REVIVE_PACKS,
+  SINGLE_REVIVE,
   spendRevive,
-  useRevives,
-  type RevivePack
+  useRevives
 } from "./revives";
 import { wagmiConfig } from "./wagmi";
 import { authHeaders, getStoredIsAdmin, WalletConnect } from "./WalletConnect";
@@ -69,6 +70,7 @@ type Action =
   | { type: "pause" }
   | { type: "reset" }
   | { type: "loadBoard"; board: BoardConfig; start?: boolean }
+  | { type: "startWithDirection"; direction: Direction }
   | { type: "revive" }
   | { type: "move"; direction: Direction }
   | { type: "turnAndTick"; direction: Direction }
@@ -185,9 +187,10 @@ function boardOf(state: GameState): BoardConfig {
   return { cols: state.cols, rows: state.rows, goal: state.goal };
 }
 
-// After a crash the snake is still standing where it died, so a revive only
-// needs a direction that doesn't walk straight back into the wall or the body.
-function findSafeDirection(state: GameState): Direction {
+// After a crash the snake is still standing where it died, so a revive needs a
+// direction that doesn't walk straight back into the wall or the body. Null
+// means there isn't one — the head is walled in.
+function findSafeDirection(state: GameState): Direction | null {
   const head = state.snake[0];
   const body = new Set(state.snake.slice(0, -1).map(pointKey));
   const candidates: Direction[] = [state.direction, "up", "right", "down", "left"];
@@ -206,8 +209,60 @@ function findSafeDirection(state: GameState): Direction {
     }
   }
 
-  // Fully boxed in — rare, and the player at least gets to see it happen.
-  return state.direction;
+  return null;
+}
+
+function directionBetween(from: Point, to: Point): Direction | null {
+  if (to.x === from.x + 1 && to.y === from.y) return "right";
+  if (to.x === from.x - 1 && to.y === from.y) return "left";
+  if (to.y === from.y + 1 && to.x === from.x) return "down";
+  if (to.y === from.y - 1 && to.x === from.x) return "up";
+  return null;
+}
+
+// A revive is worthless if it hands back a snake that can only crash again —
+// dying head-first into a corner is exactly when people pay. So: move if the
+// head can, otherwise swap head and tail (the tail end is almost always open,
+// and this costs nothing), and only if even that is walled in give up length
+// from the tail until there is a way out. Score and moves are never touched.
+function makePlayableAfterRevive(state: GameState): GameState {
+  const straightOut = findSafeDirection(state);
+
+  if (straightOut) {
+    return { ...state, direction: straightOut, queuedDirection: straightOut };
+  }
+
+  const reversedSnake = [...state.snake].reverse();
+  const reversed: GameState = {
+    ...state,
+    snake: reversedSnake,
+    direction:
+      reversedSnake.length > 1
+        ? directionBetween(reversedSnake[1], reversedSnake[0]) ?? state.direction
+        : state.direction
+  };
+  const outOfTheTail = findSafeDirection(reversed);
+
+  if (outOfTheTail) {
+    return { ...reversed, direction: outOfTheTail, queuedDirection: outOfTheTail };
+  }
+
+  let snake = reversed.snake;
+
+  while (snake.length > 1) {
+    snake = snake.slice(0, -1);
+
+    const trimmed: GameState = { ...reversed, snake };
+    const direction = findSafeDirection(trimmed);
+
+    if (direction) {
+      return { ...trimmed, direction, queuedDirection: direction };
+    }
+  }
+
+  // One cell left and still nowhere to go: the board is full, which is a win,
+  // not a crash. Nothing sensible to do but hand the state back.
+  return { ...reversed, snake };
 }
 
 function calculateScore(length: number, moves: number, won: boolean) {
@@ -410,6 +465,29 @@ function reducer(state: GameState, action: Action): GameState {
     case "loadBoard":
       return createGame(action.board, action.start ? "running" : "idle");
 
+    // Pressing an arrow while the board is standing still both starts the run
+    // and turns: after a revive there is no time to hit play and then a key.
+    case "startWithDirection": {
+      if (state.status === "paused") {
+        const direction =
+          state.snake.length > 1 && isOpposite(state.direction, action.direction)
+            ? state.direction
+            : action.direction;
+
+        return { ...state, status: "running", direction, queuedDirection: direction };
+      }
+
+      if (state.status === "idle") {
+        return {
+          ...createGame(boardOf(state), "running"),
+          direction: action.direction,
+          queuedDirection: action.direction
+        };
+      }
+
+      return state;
+    }
+
     // A revive resumes the run that just ended: same snake, same score, same
     // move count — only the direction is nudged somewhere survivable, and the
     // game waits paused so the player isn't dropped straight back into motion.
@@ -418,13 +496,7 @@ function reducer(state: GameState, action: Action): GameState {
         return state;
       }
 
-      const direction = findSafeDirection(state);
-
-      return {
-        ...ensureFoodOnState({ ...state, status: "paused" }),
-        direction,
-        queuedDirection: direction
-      };
+      return ensureFoodOnState({ ...makePlayableAfterRevive(state), status: "paused" });
     }
 
     case "move":
@@ -484,6 +556,7 @@ function Game() {
     createGame(searchParams.get("mode") === "levels" ? getLevel(getLevelProgress()) : CLASSIC_BOARD)
   );
   const [isShopOpen, setIsShopOpen] = useState(false);
+  const [packQuantity, setPackQuantity] = useState(1);
   const revives = useRevives();
   const [activeDirection, setActiveDirection] = useState<Direction | null>(null);
   const [coinReady, setCoinReady] = useState(false);
@@ -546,7 +619,7 @@ function Game() {
     dispatch({ type: "loadBoard", board: targetBoard });
   }, [targetBoard.cols, targetBoard.rows, targetBoard.goal, game.cols, game.rows, game.goal]);
 
-  // Clearing a level unlocks the next one for good.
+  // Clearing a level unlocks the next one.
   useEffect(() => {
     if (mode !== "levels" || game.status !== "won") {
       return;
@@ -559,10 +632,28 @@ function Game() {
     }
   }, [game.status, levelIndex, mode]);
 
+  // Crashing costs the ladder: the next run starts at level 1. Stored right at
+  // the crash so closing the app mid-death screen doesn't dodge it, but the
+  // level in state is left alone — a revive continues the run that's still open.
+  useEffect(() => {
+    if (mode !== "levels" || game.status !== "lost") {
+      return;
+    }
+
+    storeLevelProgress(0);
+  }, [game.status, mode]);
+
   const queueDirection = (direction: Direction) => {
     const liveGame = gameRef.current;
     const canTurn = liveGame.snake.length <= 1 || !isOpposite(liveGame.direction, direction);
     const isNewDirection = liveGame.queuedDirection !== direction;
+
+    // Standing still: the arrow itself starts the run in that direction.
+    if (liveGame.status === "paused" || liveGame.status === "idle") {
+      accumulatorRef.current = 0;
+      dispatch({ type: "startWithDirection", direction });
+      return;
+    }
 
     if (liveGame.status === "running" && canTurn && isNewDirection) {
       accumulatorRef.current = 0;
@@ -868,25 +959,39 @@ function Game() {
   };
 
   const playAgain = () => {
+    // Starting over after a crash in level mode means starting over from the
+    // first board, not retrying the one that killed you.
+    if (mode === "levels" && game.status === "lost" && levelIndex > 0) {
+      setLevelIndex(0);
+      dispatch({ type: "loadBoard", board: getLevel(0), start: true });
+      releaseFocus();
+      return;
+    }
+
     dispatch({ type: "start" });
     releaseFocus();
   };
 
   // No balance means the shop, not a dead end: buying while dead revives on the
   // spot, which is the whole point of the $1 tier.
+  // With nothing in stock this is the $1 single, which exists only here — at the
+  // crash, where one revive is worth a dollar. It buys and spends in one press.
   const useRevive = () => {
-    if (!spendRevive()) {
-      setIsShopOpen(true);
-      return;
+    if (revives <= 0) {
+      purchasePack(SINGLE_REVIVE);
     }
 
-    dispatch({ type: "revive" });
+    if (spendRevive()) {
+      dispatch({ type: "revive" });
+    }
+
     releaseFocus();
   };
 
-  const buyPack = (pack: RevivePack) => {
-    purchasePack(pack);
+  const buyPacks = () => {
+    purchasePack(PACK_REVIVE, packQuantity);
     setIsShopOpen(false);
+    setPackQuantity(1);
 
     if (gameRef.current.status === "lost" && spendRevive()) {
       dispatch({ type: "revive" });
@@ -1153,12 +1258,23 @@ function Game() {
 
       {/* Header */}
       <header className="gs-header">
-        <div>
-          <div className="gs-brand-label">
-            <img src="/coin.png" alt="" className="gs-brand-icon" />
-            Base Snake
+        <div className="gs-header-left">
+          <button
+            className="gs-back-btn"
+            type="button"
+            onClick={exitGame}
+            title="Back to menu"
+            aria-label="Back to menu"
+          >
+            <ChevronLeft />
+          </button>
+          <div>
+            <div className="gs-brand-label">
+              <img src="/coin.png" alt="" className="gs-brand-icon" />
+              Base Snake
+            </div>
+            <h1 className="gs-title">{statusText}</h1>
           </div>
-          <h1 className="gs-title">{statusText}</h1>
         </div>
         <WalletConnect />
       </header>
@@ -1363,10 +1479,28 @@ function Game() {
 
             <div className="gs-end-actions">
               {game.status === "lost" && (
-                <button className="gs-end-revive" type="button" onClick={useRevive}>
-                  <Heart />
-                  <span>{revives > 0 ? `Revive · ${revives} left` : "Revive · $1"}</span>
-                </button>
+                <>
+                  <button className="gs-end-revive" type="button" onClick={useRevive}>
+                    <Heart />
+                    <span>
+                      {revives > 0
+                        ? `Revive · ${revives} left`
+                        : `Revive · $${SINGLE_REVIVE.priceUsd}`}
+                    </span>
+                  </button>
+                  <button
+                    className="gs-end-shop-link"
+                    type="button"
+                    onClick={() => setIsShopOpen(true)}
+                  >
+                    or stock up · {PACK_REVIVE.revives} for ${PACK_REVIVE.priceUsd}
+                  </button>
+                  {!PAYMENTS_ARE_LIVE && revives <= 0 && (
+                    <small className="gs-end-local-note">
+                      Local build — the $1 revive is granted, not charged.
+                    </small>
+                  )}
+                </>
               )}
               {game.status === "won" && mode === "levels" && !isLastLevel && (
                 <button className="gs-end-next" type="button" onClick={goToNextLevel}>
@@ -1408,7 +1542,8 @@ function Game() {
 
             <h3>Revives</h3>
             <p className="gs-shop-lead">
-              A revive puts you back exactly where you crashed — same length, same score.
+              A revive puts you back into the run you just lost, with the score intact and a way
+              out of the spot that killed you.
             </p>
 
             <div className="gs-shop-balance">
@@ -1417,21 +1552,38 @@ function Game() {
               <span>in stock</span>
             </div>
 
-            <div className="gs-shop-packs">
-              {REVIVE_PACKS.map((pack) => (
+            <div className="gs-shop-pack">
+              <span className="gs-shop-pack-top">
+                <strong>{PACK_REVIVE.revives * packQuantity} revives</strong>
+                <em>${PACK_REVIVE.priceUsd * packQuantity}</em>
+              </span>
+              <small>
+                {PACK_REVIVE.hint} · {packQuantity} pack{packQuantity > 1 ? "s" : ""} × $
+                {PACK_REVIVE.priceUsd}
+              </small>
+
+              <div className="gs-shop-stepper">
                 <button
-                  key={pack.id}
-                  className="gs-shop-pack"
                   type="button"
-                  onClick={() => buyPack(pack)}
+                  onClick={() => setPackQuantity((value) => Math.max(1, value - 1))}
+                  disabled={packQuantity <= 1}
+                  aria-label="One pack fewer"
                 >
-                  <span className="gs-shop-pack-top">
-                    <strong>{pack.label}</strong>
-                    <em>${pack.priceUsd}</em>
-                  </span>
-                  <small>{pack.hint}</small>
+                  <Minus size={16} />
                 </button>
-              ))}
+                <strong aria-live="polite">{packQuantity}</strong>
+                <button
+                  type="button"
+                  onClick={() => setPackQuantity((value) => value + 1)}
+                  aria-label="One pack more"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+
+              <button className="gs-shop-buy" type="button" onClick={buyPacks}>
+                Buy · ${PACK_REVIVE.priceUsd * packQuantity}
+              </button>
             </div>
 
             {!PAYMENTS_ARE_LIVE && (
