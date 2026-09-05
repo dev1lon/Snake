@@ -1,8 +1,7 @@
 import { reconnect } from "@wagmi/core";
 import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { useBaseAppGate } from "./baseApp";
-import { BaseAppGate } from "./BaseAppGate";
+import { GATE_PAGE_PATH, useBaseAppGate } from "./baseApp";
 import Game from "./Game";
 import Landing from "./Landing";
 import { wagmiConfig } from "./wagmi";
@@ -18,9 +17,16 @@ export default function App() {
   }, []);
 
   // Outside Base App the wallet, sponsorship and notifications all dead-end, so
-  // the gate replaces the app rather than sitting on top of a broken one.
+  // the browser is sent to the gate page rather than into a half-working game.
+  // It's a real page, not a route: leaving the SPA is the point.
+  useEffect(() => {
+    if (showBaseAppGate) {
+      window.location.replace(GATE_PAGE_PATH);
+    }
+  }, [showBaseAppGate]);
+
   if (showBaseAppGate) {
-    return <BaseAppGate />;
+    return null;
   }
 
   return (

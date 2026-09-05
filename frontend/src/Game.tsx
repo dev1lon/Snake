@@ -26,8 +26,10 @@ import {
   CLASSIC_BOARD,
   clampLevel,
   getLevel,
+  getLevelBest,
   getLevelProgress,
   LAST_LEVEL_INDEX,
+  storeLevelBest,
   storeLevelProgress,
   type BoardConfig
 } from "./levels";
@@ -113,6 +115,8 @@ const vectors: Record<Direction, Point> = {
   right: { x: 1, y: 0 }
 };
 
+const directionList: Direction[] = ["up", "right", "down", "left"];
+
 function samePoint(a: Point, b: Point) {
   return a.x === b.x && a.y === b.y;
 }
@@ -187,31 +191,6 @@ function boardOf(state: GameState): BoardConfig {
   return { cols: state.cols, rows: state.rows, goal: state.goal };
 }
 
-// After a crash the snake is still standing where it died, so a revive needs a
-// direction that doesn't walk straight back into the wall or the body. Null
-// means there isn't one — the head is walled in.
-function findSafeDirection(state: GameState): Direction | null {
-  const head = state.snake[0];
-  const body = new Set(state.snake.slice(0, -1).map(pointKey));
-  const candidates: Direction[] = [state.direction, "up", "right", "down", "left"];
-
-  for (const direction of candidates) {
-    if (state.snake.length > 1 && isOpposite(state.direction, direction)) {
-      continue;
-    }
-
-    const vector = vectors[direction];
-    const next = { x: head.x + vector.x, y: head.y + vector.y };
-    const inBounds = next.x >= 0 && next.y >= 0 && next.x < state.cols && next.y < state.rows;
-
-    if (inBounds && !body.has(pointKey(next))) {
-      return direction;
-    }
-  }
-
-  return null;
-}
-
 function directionBetween(from: Point, to: Point): Direction | null {
   if (to.x === from.x + 1 && to.y === from.y) return "right";
   if (to.x === from.x - 1 && to.y === from.y) return "left";
@@ -220,49 +199,158 @@ function directionBetween(from: Point, to: Point): Direction | null {
   return null;
 }
 
-// A revive is worthless if it hands back a snake that can only crash again —
-// dying head-first into a corner is exactly when people pay. So: move if the
-// head can, otherwise swap head and tail (the tail end is almost always open,
-// and this costs nothing), and only if even that is walled in give up length
-// from the tail until there is a way out. Score and moves are never touched.
-function makePlayableAfterRevive(state: GameState): GameState {
-  const straightOut = findSafeDirection(state);
+// Every free cell you can actually reach from `start`, walking around the body.
+// One open cell next to the head means nothing — it can be the mouth of a
+// pocket two cells deep — so the revive is judged on reachable room, not on
+// whether the first step is legal.
+function reachableFrom(state: GameState, start: Point, blocked: Set<string>) {
+  const room = new Set<string>();
+  const inBounds = (cell: Point) =>
+    cell.x >= 0 && cell.y >= 0 && cell.x < state.cols && cell.y < state.rows;
 
-  if (straightOut) {
-    return { ...state, direction: straightOut, queuedDirection: straightOut };
+  if (!inBounds(start) || blocked.has(pointKey(start))) {
+    return room;
   }
 
-  const reversedSnake = [...state.snake].reverse();
-  const reversed: GameState = {
-    ...state,
-    snake: reversedSnake,
-    direction:
-      reversedSnake.length > 1
-        ? directionBetween(reversedSnake[1], reversedSnake[0]) ?? state.direction
-        : state.direction
-  };
-  const outOfTheTail = findSafeDirection(reversed);
+  const queue: Point[] = [start];
+  room.add(pointKey(start));
 
-  if (outOfTheTail) {
-    return { ...reversed, direction: outOfTheTail, queuedDirection: outOfTheTail };
-  }
+  while (queue.length > 0) {
+    const cell = queue.shift() as Point;
 
-  let snake = reversed.snake;
+    for (const direction of directionList) {
+      const vector = vectors[direction];
+      const next = { x: cell.x + vector.x, y: cell.y + vector.y };
+      const key = pointKey(next);
 
-  while (snake.length > 1) {
-    snake = snake.slice(0, -1);
-
-    const trimmed: GameState = { ...reversed, snake };
-    const direction = findSafeDirection(trimmed);
-
-    if (direction) {
-      return { ...trimmed, direction, queuedDirection: direction };
+      if (inBounds(next) && !blocked.has(key) && !room.has(key)) {
+        room.add(key);
+        queue.push(next);
+      }
     }
   }
 
-  // One cell left and still nowhere to go: the board is full, which is a win,
-  // not a crash. Nothing sensible to do but hand the state back.
-  return { ...reversed, snake };
+  return room;
+}
+
+// The roomiest legal first step, with the space it opens onto.
+function bestEscape(state: GameState) {
+  const head = state.snake[0];
+  // The tail cell empties as the snake moves, so it doesn't block.
+  const blocked = new Set(state.snake.slice(0, -1).map(pointKey));
+  let best: { direction: Direction; room: Set<string> } | null = null;
+
+  for (const direction of directionList) {
+    if (state.snake.length > 1 && isOpposite(state.direction, direction)) {
+      continue;
+    }
+
+    const vector = vectors[direction];
+    const room = reachableFrom(state, { x: head.x + vector.x, y: head.y + vector.y }, blocked);
+
+    if (room.size > 0 && (!best || room.size > best.room.size)) {
+      best = { direction, room };
+    }
+  }
+
+  return best;
+}
+
+// How much space makes a revive worth a dollar. Never more than the board has
+// left, so a nearly full board doesn't demand the impossible.
+function requiredRoom(state: GameState) {
+  const free = state.cols * state.rows - state.snake.length;
+
+  return Math.min(Math.max(8, Math.ceil(state.snake.length / 2)), Math.max(1, free));
+}
+
+function reverseSnake(state: GameState): GameState {
+  const snake = [...state.snake].reverse();
+
+  return {
+    ...state,
+    snake,
+    direction:
+      snake.length > 1 ? directionBetween(snake[1], snake[0]) ?? state.direction : state.direction
+  };
+}
+
+// Food inside a pocket the snake can't reach is the same as no food: the run
+// can move but never score. Keep it if it's in the open space, move it if not.
+function placeFoodInRoom(state: GameState, room: Set<string>): GameState {
+  if (state.food && room.has(pointKey(state.food))) {
+    return state;
+  }
+
+  const body = new Set(state.snake.map(pointKey));
+  const candidates = Array.from(room).filter((key) => !body.has(key));
+
+  if (candidates.length === 0) {
+    return state;
+  }
+
+  const [x, y] = candidates[Math.floor(Math.random() * candidates.length)].split(",");
+
+  return { ...state, food: { x: Number(x), y: Number(y) } };
+}
+
+// A revive is worthless if it hands back a run that can only crash again —
+// dying into a corner is exactly when people pay. In order: leave the way the
+// head can go, else swap head and tail (free, keeps the length), else give up
+// length from the tail until real space opens. Score and moves are never
+// touched, and the food is moved into whatever space the snake ends up in.
+function makePlayableAfterRevive(state: GameState): GameState {
+  const reversed = reverseSnake(state);
+  let trimmed = reversed.snake;
+  let roomiest: GameState | null = null;
+  let roomiestSize = -1;
+
+  // The head as it stands, then turned around, then shorter and shorter.
+  const attempt = (candidate: GameState): GameState | null => {
+    const escape = bestEscape(candidate);
+
+    if (!escape) {
+      return null;
+    }
+
+    const revived = placeFoodInRoom(
+      { ...candidate, direction: escape.direction, queuedDirection: escape.direction },
+      escape.room
+    );
+
+    if (escape.room.size > roomiestSize) {
+      roomiest = revived;
+      roomiestSize = escape.room.size;
+    }
+
+    return escape.room.size >= requiredRoom(candidate) ? revived : null;
+  };
+
+  const asIs = attempt(state);
+
+  if (asIs) {
+    return asIs;
+  }
+
+  const turnedAround = attempt(reversed);
+
+  if (turnedAround) {
+    return turnedAround;
+  }
+
+  while (trimmed.length > 1) {
+    trimmed = trimmed.slice(0, -1);
+
+    const shorter = attempt({ ...reversed, snake: trimmed });
+
+    if (shorter) {
+      return shorter;
+    }
+  }
+
+  // Nothing cleared the bar — hand back the roomiest option found, which on a
+  // board this full is the best there is.
+  return roomiest ?? state;
 }
 
 function calculateScore(length: number, moves: number, won: boolean) {
@@ -469,12 +557,21 @@ function reducer(state: GameState, action: Action): GameState {
     // and turns: after a revive there is no time to hit play and then a key.
     case "startWithDirection": {
       if (state.status === "paused") {
-        const direction =
-          state.snake.length > 1 && isOpposite(state.direction, action.direction)
-            ? state.direction
-            : action.direction;
+        // A snake can't reverse into its own neck. Starting in some *other*
+        // direction instead is worse than not starting: the player presses
+        // down, the snake leaves in the direction it was already facing, and
+        // the revive they just paid for is spent on a move they never asked
+        // for. So an impossible key simply doesn't start the run.
+        if (state.snake.length > 1 && isOpposite(state.direction, action.direction)) {
+          return state;
+        }
 
-        return { ...state, status: "running", direction, queuedDirection: direction };
+        return {
+          ...state,
+          status: "running",
+          direction: action.direction,
+          queuedDirection: action.direction
+        };
       }
 
       if (state.status === "idle") {
@@ -557,6 +654,9 @@ function Game() {
   );
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [packQuantity, setPackQuantity] = useState(1);
+  const [levelBest, setLevelBest] = useState(() =>
+    getLevelBest(searchParams.get("mode") === "levels" ? getLevelProgress() : 0)
+  );
   const revives = useRevives();
   const [activeDirection, setActiveDirection] = useState<Direction | null>(null);
   const [coinReady, setCoinReady] = useState(false);
@@ -631,6 +731,20 @@ function Game() {
       storeLevelProgress(unlocked);
     }
   }, [game.status, levelIndex, mode]);
+
+  useEffect(() => {
+    setLevelBest(getLevelBest(levelIndex));
+  }, [levelIndex]);
+
+  // Every finished run in level mode leaves its score against its level, so a
+  // saved record can name both.
+  useEffect(() => {
+    if (mode !== "levels" || (game.status !== "lost" && game.status !== "won")) {
+      return;
+    }
+
+    setLevelBest(storeLevelBest(levelIndex, game.score));
+  }, [game.status, game.score, levelIndex, mode]);
 
   // Crashing costs the ladder: the next run starts at level 1. Stored right at
   // the crash so closing the app mid-death screen doesn't dodge it, but the
@@ -1236,7 +1350,15 @@ function Game() {
       }
 
       setRecordSaved(true);
-      setRecordStatus(confirmed ? "Record saved onchain" : "Sent — confirmation pending");
+      // Name what was saved: on the ladder a bare number says nothing about
+      // which board earned it.
+      const runLabel =
+        mode === "levels"
+          ? `level ${levelIndex + 1}, score ${game.score}`
+          : `score ${game.score}`;
+      setRecordStatus(
+        confirmed ? `Saved onchain — ${runLabel}` : `Sent — ${runLabel}, confirmation pending`
+      );
 
       void fetch(`${API_URL}/api/player/record`, {
         method: "POST",
@@ -1476,6 +1598,13 @@ function Game() {
                 <strong>{shownBestRunCells}</strong>
               </div>
             </div>
+
+            {mode === "levels" && (
+              <p className="gs-end-level-line">
+                Level {levelIndex + 1} · {game.cols}×{game.rows} · score {game.score}
+                {levelBest > game.score ? ` · best here ${levelBest}` : ""}
+              </p>
+            )}
 
             <div className="gs-end-actions">
               {game.status === "lost" && (

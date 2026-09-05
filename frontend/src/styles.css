@@ -787,6 +787,15 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   color: #fff;
 }
 
+.gs-end-level-line {
+  margin: -8px 0 18px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  color: #8A95A5;
+  text-align: center;
+}
+
 .gs-end-actions {
   width: 100%;
   display: flex;

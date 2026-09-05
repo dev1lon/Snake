@@ -58,3 +58,37 @@ export function storeLevelProgress(index: number) {
     // Storage is blocked in some webviews; progress just won't survive a reload.
   }
 }
+
+// Best score per level, so a run reads as "level 3 · 1240" rather than as a
+// bare number that says nothing about which board earned it.
+const BEST_KEY = "snake.levels.best";
+
+function readBestScores(): Record<string, number> {
+  try {
+    const raw = window.localStorage.getItem(BEST_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getLevelBest(index: number) {
+  const value = readBestScores()[String(clampLevel(index))];
+
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+export function storeLevelBest(index: number, score: number) {
+  const level = clampLevel(index);
+  const best = Math.max(getLevelBest(level), Math.max(0, Math.floor(score)));
+
+  try {
+    window.localStorage.setItem(BEST_KEY, JSON.stringify({ ...readBestScores(), [level]: best }));
+  } catch {
+    // Same as progress: a blocked store costs the record, not the run.
+  }
+
+  return best;
+}

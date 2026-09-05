@@ -1,17 +1,9 @@
 import { useEffect, useState } from "react";
 
-// The link to the mini app inside Base App. Set VITE_BASE_APP_LINK once the
-// final URL exists — until then the gate still shows, with the button disabled
-// instead of pointing somewhere wrong.
-export const BASE_APP_LINK = (import.meta.env.VITE_BASE_APP_LINK ?? "").trim();
-export const CREATOR_HANDLE = (import.meta.env.VITE_CREATOR_HANDLE ?? "@devilonnn").trim();
-export const CREATOR_URL = (import.meta.env.VITE_CREATOR_URL ?? "").trim();
-
-// What the gate prints under the button. Falls back to the link without its
-// scheme, which is how Base App itself writes these.
-export const BASE_APP_LABEL =
-  (import.meta.env.VITE_BASE_APP_LABEL ?? "").trim() ||
-  BASE_APP_LINK.replace(/^https?:\/\//, "").replace(/\/$/, "");
+// The gate is its own page — plain HTML and CSS in public/gate.html, with the
+// Base App link written straight into it. Nothing about it is built by Vite, so
+// it can be opened, edited and reviewed on its own.
+export const GATE_PAGE_PATH = "/gate.html";
 
 const SKIP_KEY = "snake.skipBaseAppGate";
 
