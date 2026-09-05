@@ -10,6 +10,8 @@ services:
     startCommand: npm run start
     healthCheckPath: /health
     envVars:
+      - key: NODE_VERSION
+        value: "22"
       - key: NODE_ENV
         value: production
       - key: FRONTEND_ORIGIN
@@ -22,6 +24,10 @@ services:
         sync: false
       - key: CDP_PAYMASTER_URL
         sync: false
+      # SnakeArcade address. Runs and revive purchases are read back from its
+      # events; without it the run endpoints answer 503.
+      - key: ARCADE_CONTRACT_ADDRESS
+        value: 0xd3a355586a035bAA80eA56d6D8627b0F64141D78
       # Dedicated Base RPC. Every login verifies a Smart Wallet signature with
       # an eth_call, and the default public endpoint rate-limits.
       - key: RPC_URL
@@ -30,9 +36,10 @@ services:
       # join the CORS allowlist, the CSRF check and the SIWE domain allowlist.
       - key: ADDITIONAL_ORIGINS
         sync: false
-      # Optional: set DATABASE_URL (plus DATABASE_SSL=true) to keep sessions and
-      # streaks across restarts. Without it both live in memory and are lost
-      # whenever the free instance sleeps or redeploys.
+      # Required in production: use the Internal Database URL for Render Postgres.
+      - key: DATABASE_URL
+        sync: false
+      # Set DATABASE_SSL=true only when your database connection requires TLS.
 
   - type: web
     name: snake-frontend
@@ -46,6 +53,8 @@ services:
         source: /*
         destination: /index.html
     envVars:
+      - key: NODE_VERSION
+        value: "22"
       - key: VITE_API_URL
         fromService:
           type: web
@@ -53,8 +62,16 @@ services:
           property: host
       - key: VITE_RECORD_CONTRACT_ADDRESS
         value: 0x9e5d82E6B6419C066Bc57F5a70116659c468d780
+      # SnakeArcade. Saving a run and buying revives both cost money and both
+      # go here.
+      - key: VITE_ARCADE_CONTRACT_ADDRESS
+        value: 0xd3a355586a035bAA80eA56d6D8627b0F64141D78
       - key: VITE_BUILDER_CODE_SUFFIX
         value: 0x62635f38776576327439680b0080218021802180218021802180218021
       # Domain-restricted RPC key. Falls back to the public Base endpoint.
       - key: VITE_RPC_URL
+        sync: false
+      # Sends non-Base-App browsers to /gate.html. Off unless set to "true";
+      # the gate links to Base App and displays the game address.
+      - key: VITE_REQUIRE_BASE_APP
         sync: false

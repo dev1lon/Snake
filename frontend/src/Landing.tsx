@@ -1,4 +1,7 @@
+import { ChevronLeft } from "lucide-react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { getLevel, getLevelProgress } from "./levels";
 import { WalletConnect } from "./WalletConnect";
 import { useLiteEffects } from "./useLiteEffects";
 import "./landing.css";
@@ -6,6 +9,9 @@ import "./landing.css";
 export default function Landing() {
   const navigate = useNavigate();
   const liteEffects = useLiteEffects();
+  const [levelIndex] = useState(getLevelProgress);
+  const [pickingMode, setPickingMode] = useState(false);
+  const level = getLevel(levelIndex);
 
   return (
     <div className={`lnd-root${liteEffects ? " is-lite" : ""}`}>
@@ -49,11 +55,45 @@ export default function Landing() {
 
         {/* Pinned play button - always in view */}
         <div className="lnd-cta">
-          <button className="lnd-btn-play" type="button" onClick={() => navigate("/game")}>
+          <button className="lnd-btn-play" type="button" onClick={() => setPickingMode(true)}>
             PLAY GAME
           </button>
         </div>
       </div>
+
+      {/* Mode picker: play is one button, the choice comes after it. */}
+      {pickingMode && (
+        <div className="lnd-modes" role="dialog" aria-modal="true" aria-label="Choose a mode">
+          <div className="lnd-modes-card">
+            <h2>Choose a mode</h2>
+
+            <button
+              className="lnd-mode"
+              type="button"
+              onClick={() => navigate("/game?mode=classic")}
+            >
+              <strong>CLASSIC</strong>
+              <small>16×16 · fill the whole board</small>
+            </button>
+
+            <button
+              className="lnd-mode lnd-mode-levels"
+              type="button"
+              onClick={() => navigate("/game?mode=levels")}
+            >
+              <strong>LEVELS</strong>
+              <small>
+                LVL {levelIndex + 1} · {level.cols}×{level.rows} · boards keep growing
+              </small>
+            </button>
+
+            <button className="lnd-modes-back" type="button" onClick={() => setPickingMode(false)}>
+              <ChevronLeft size={15} />
+              Back
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

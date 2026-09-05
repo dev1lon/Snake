@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "overrides": {
+    "axios": "^1.17.1",
+    "ws": "^8.21.3"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
@@ -18,7 +22,7 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.15.0",
     "siwe": "^3.0.0",
-    "viem": "^2.48.8",
+    "viem": "2.48.8",
     "wagmi": "^3.6.9"
   },
   "devDependencies": {
@@ -26,6 +30,6 @@
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.8.3",
-    "vite": "^5.4.14"
+    "vite": "^7.3.6"
   }
 }

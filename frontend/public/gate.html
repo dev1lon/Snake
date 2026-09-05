@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#02040a" />
+    <meta name="robots" content="noindex" />
+    <title>Base Snake — open in Base App</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-top: #02040a;
+        --bg-bottom: #070d1a;
+        --panel-top: rgba(27, 36, 60, 0.92);
+        --panel-bottom: rgba(9, 14, 26, 0.96);
+        --accent: #0052ff;
+        --accent-bright: #00e5ff;
+        --border: rgba(255, 255, 255, 0.1);
+        --corner: rgba(0, 229, 255, 0.35);
+        --text: #ffffff;
+        --muted: #8a95a5;
+        --dot: #17c964;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg-top);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .gate {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow-y: auto;
+        padding: calc(12px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right))
+          calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+        background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+      }
+
+      .gate-frame {
+        position: relative;
+        width: min(600px, 100%);
+        min-height: min(
+          740px,
+          calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))
+        );
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 22px;
+        padding: 46px 26px;
+        text-align: center;
+        border: 1px solid var(--border);
+        border-radius: 26px;
+        box-shadow: 0 40px 90px -50px rgba(0, 0, 0, 0.95), 0 0 60px -30px rgba(0, 82, 255, 0.55);
+        overflow: hidden;
+        background: linear-gradient(180deg, var(--panel-top) 0%, var(--panel-bottom) 100%);
+      }
+
+      /* L-shaped corner brackets */
+      .corner {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        border: 2px solid var(--corner);
+        pointer-events: none;
+      }
+
+      .corner-tl {
+        top: 8px;
+        left: 8px;
+        border-right: none;
+        border-bottom: none;
+        border-radius: 4px 0 0 0;
+      }
+
+      .corner-tr {
+        top: 8px;
+        right: 8px;
+        border-left: none;
+        border-bottom: none;
+        border-radius: 0 4px 0 0;
+      }
+
+      .corner-bl {
+        bottom: 8px;
+        left: 8px;
+        border-right: none;
+        border-top: none;
+        border-radius: 0 0 0 4px;
+      }
+
+      .corner-br {
+        bottom: 8px;
+        right: 8px;
+        border-left: none;
+        border-top: none;
+        border-radius: 0 0 4px 0;
+      }
+
+      /* The snake and coins from the game itself, sitting behind the content. */
+      .art {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      /* Bottom-right, faded into the panel: the artwork is texture behind the
+         message, never something the message has to compete with. */
+      .art-snake {
+        position: absolute;
+        right: -16%;
+        bottom: -6%;
+        width: min(430px, 88%);
+        opacity: 0.24;
+        filter: saturate(1.1) contrast(1.05);
+        mask-image: linear-gradient(to top left, #000 22%, transparent 82%);
+        -webkit-mask-image: linear-gradient(to top left, #000 22%, transparent 82%);
+      }
+
+      .art-coin {
+        position: absolute;
+        width: 34px;
+        height: 34px;
+        opacity: 0.85;
+        filter: drop-shadow(0 0 14px rgba(0, 82, 255, 0.75));
+        animation: float 5.5s ease-in-out infinite;
+      }
+
+      .art-coin-1 {
+        top: 13%;
+        left: 12%;
+        width: 26px;
+        height: 26px;
+        animation-delay: -0.4s;
+      }
+
+      .art-coin-2 {
+        top: 22%;
+        right: 14%;
+        animation-delay: -1.8s;
+      }
+
+      .art-coin-3 {
+        bottom: 24%;
+        left: 16%;
+        width: 22px;
+        height: 22px;
+        animation-delay: -3.1s;
+      }
+
+      .art-coin-4 {
+        bottom: 16%;
+        right: 11%;
+        width: 30px;
+        height: 30px;
+        animation-delay: -2.3s;
+      }
+
+      @keyframes float {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-9px);
+        }
+      }
+
+      .badge {
+        position: relative;
+        z-index: 5;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 14px;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.06);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+      }
+
+      .badge span {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--dot);
+        box-shadow: 0 0 10px var(--dot);
+      }
+
+      h1 {
+        position: relative;
+        z-index: 5;
+        font-size: 40px;
+        font-weight: 800;
+        line-height: 1.05;
+        letter-spacing: -1px;
+        margin: 0;
+        text-shadow: 0 0 34px rgba(0, 82, 255, 0.55);
+      }
+
+      .subtitle {
+        position: relative;
+        z-index: 5;
+        max-width: 308px;
+        font-size: 16px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+
+      .cta {
+        position: relative;
+        z-index: 5;
+        width: min(292px, 100%);
+        min-height: 58px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 16px;
+        background: linear-gradient(180deg, #0052ff 0%, #0036a8 100%);
+        color: #fff;
+        font-family: inherit;
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        text-decoration: none;
+        cursor: pointer;
+        animation: pulse 1.7s ease-in-out infinite;
+      }
+
+      /* Depth only — a coloured halo around a rounded button reads as a smeared
+         rectangle behind it, so the pulse is carried by the movement alone. */
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: translateY(0) scale(1);
+          box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.85),
+            inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+        }
+        50% {
+          transform: translateY(-1px) scale(1.035);
+          box-shadow: 0 12px 26px -14px rgba(0, 0, 0, 0.9),
+            inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+        }
+      }
+
+      .url {
+        position: relative;
+        z-index: 5;
+        font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+        font-size: 12px;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+
+      .credit {
+        position: relative;
+        z-index: 5;
+        font-size: 11px;
+        letter-spacing: 0.2px;
+        color: var(--muted);
+      }
+
+      .credit a {
+        color: var(--accent-bright);
+        text-decoration: none;
+      }
+
+      .credit a:hover {
+        text-decoration: underline;
+      }
+
+      .ground {
+        position: absolute;
+        left: 20px;
+        right: 20px;
+        bottom: 26px;
+        height: 4px;
+        border-radius: 2px;
+        background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      }
+
+      @media (max-height: 580px) {
+        .gate-frame {
+          min-height: 0;
+          gap: 12px;
+          padding: 22px 20px;
+        }
+
+        h1 {
+          font-size: 23px;
+        }
+
+        .art-snake {
+          opacity: 0.2;
+        }
+
+        .ground {
+          bottom: 12px;
+        }
+      }
+
+      @media (max-width: 380px) {
+        h1 {
+          font-size: 25px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .cta,
+        .art-coin {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="gate">
+      <div class="gate-frame">
+        <div class="corner corner-tl"></div>
+        <div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div>
+        <div class="corner corner-br"></div>
+
+        <div class="art" aria-hidden="true">
+          <img class="art-snake" src="/hero.png" alt="" />
+          <img class="art-coin art-coin-1" src="/coin.png" alt="" />
+          <img class="art-coin art-coin-2" src="/coin.png" alt="" />
+          <img class="art-coin art-coin-3" src="/coin.png" alt="" />
+          <img class="art-coin art-coin-4" src="/coin.png" alt="" />
+        </div>
+
+        <div class="badge"><span></span>Base App only</div>
+
+        <h1>BASE SNAKE</h1>
+
+        <p class="subtitle">Open the game inside Base App to connect your wallet and play.</p>
+
+        <a class="cta" href="https://base.app">Open Base App</a>
+
+        <p class="url">base-snake.app</p>
+
+        <p class="credit">Created by @devilonnn</p>
+
+        <div class="ground"></div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -80,7 +80,7 @@ function getFriendlyWalletError(caught: unknown) {
   }
 
   if (caught.message === "Load failed" || caught.message === "Failed to fetch") {
-    return "Backend is unavailable. Try again after deploy finishes.";
+    return "Connection is temporarily unavailable. Please try again shortly.";
   }
 
   return caught.message;
@@ -92,7 +92,7 @@ async function getAuthNonce() {
   });
 
   if (!response.ok) {
-    throw new Error("Failed to create auth nonce");
+    throw new Error("Could not start sign-in. Please try again.");
   }
 
   const data = (await response.json()) as { nonce: string };
@@ -149,6 +149,9 @@ export function WalletConnect() {
     // true (no wallet yet), then wagmi reconnects, /api/auth/me starts
     // fetching, and auto-auth fires SIWE before the fetch resolves.
     setSessionChecked(false);
+    setAuthState(null);
+    setStoredIsAdmin(false);
+    window.dispatchEvent(new CustomEvent("snake:auth-changed"));
 
     const restoreSession = async () => {
       if (!isConnected || !address) {
@@ -166,17 +169,21 @@ export function WalletConnect() {
         if (response.ok) {
           const session = (await response.json()) as AuthResponse;
           if (cancelled) return;
-          if (session.authenticated) {
+          if (session.authenticated && session.address.toLowerCase() === address.toLowerCase()) {
             setAuthState({
               address: session.address,
               mode: session.mode
             });
             setStoredIsAdmin(Boolean(session.isAdmin));
-            window.dispatchEvent(new CustomEvent("snake:auth-changed", { detail: { isAdmin: Boolean(session.isAdmin) } }));
+            window.dispatchEvent(new CustomEvent("snake:auth-changed", { detail: { address: session.address, isAdmin: Boolean(session.isAdmin) } }));
+          } else {
+            setStoredAuthToken(null);
+            window.dispatchEvent(new CustomEvent("snake:auth-changed"));
           }
         } else if (response.status === 401) {
           // Stale token — drop it so we don't keep sending an invalid header.
           setStoredAuthToken(null);
+          window.dispatchEvent(new CustomEvent("snake:auth-changed"));
         }
       } catch {
         if (cancelled) return;
@@ -214,7 +221,7 @@ export function WalletConnect() {
     setAuthState({ address: session.address, mode: session.mode });
     setStoredIsAdmin(Boolean(session.isAdmin));
     setIsOpen(false);
-    window.dispatchEvent(new CustomEvent("snake:auth-changed", { detail: { isAdmin: Boolean(session.isAdmin) } }));
+    window.dispatchEvent(new CustomEvent("snake:auth-changed", { detail: { address: session.address, isAdmin: Boolean(session.isAdmin) } }));
     return session;
   };
 
@@ -306,9 +313,10 @@ export function WalletConnect() {
       method: "POST",
       credentials: "include",
       headers: authHeaders()
-    });
+    }).catch(() => undefined);
     setStoredAuthToken(null);
     setStoredIsAdmin(false);
+    window.dispatchEvent(new CustomEvent("snake:auth-changed"));
     autoAuthRef.current = null;
     disconnect();
     setAuthState(null);

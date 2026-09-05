@@ -1,17 +1,21 @@
 import cors from "cors";
 import express from "express";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { loadEnvFile } from "node:process";
 import { Pool } from "pg";
-import { createPublicClient, http } from "viem";
+import { createPublicClient, decodeEventLog, http, TransactionReceiptNotFoundError, type Hex } from "viem";
 import { base } from "viem/chains";
 import { parseSiweMessage } from "viem/siwe";
+
+if (existsSync(".env")) loadEnvFile(".env");
 
 // viem PublicClient verifies SIWE for ALL signature types (EOA, ERC-1271, EIP-6492).
 // Base Smart Wallet uses ERC-1271/EIP-6492 — siwe@3 alone can't validate it.
 // RPC_URL should point at a dedicated provider: every login is an eth_call and
 // the default public endpoint rate-limits under real traffic.
-const rpcUrl = process.env.RPC_URL ?? process.env.BASE_RPC_URL;
-const verifyClient = createPublicClient({ chain: base, transport: http(rpcUrl) });
+const rpcUrl = process.env.RPC_URL?.trim() || process.env.BASE_RPC_URL?.trim() || undefined;
+const verifyClient = createPublicClient({ chain: base, transport: http(rpcUrl, { timeout: 10_000, retryCount: 2 }) });
 
 type WalletMode = "Smart Wallet" | "Standard Wallet";
 
@@ -54,10 +58,65 @@ const adminAddresses = new Set<string>(
 const nonces = new Map<string, number>();
 const sessions = new Map<string, Session>();
 const streaks = new Map<string, StreakRecord>();
-const recordedPlayers = new Set<string>();
+// The arcade contract is where a run becomes real: a score only reaches the
+// database if a transaction to this address recorded it. Without an address the
+// run endpoints answer 503 rather than trusting the client.
+const defaultArcadeAddress = "0xd3a355586a035bAA80eA56d6D8627b0F64141D78";
+const arcadeAddress = (process.env.ARCADE_CONTRACT_ADDRESS ?? defaultArcadeAddress)
+  .trim()
+  .toLowerCase();
+
+type GameMode = "classic" | "levels";
+
+type RunRow = {
+  address: string;
+  mode: GameMode;
+  level: number;
+  score: bigint;
+  cells: number;
+  moves: number;
+  won: boolean;
+  txHash: string;
+};
+
+// In-memory stand-ins, used exactly like the streak maps when DATABASE_URL is
+// unset: enough to develop against, lost on restart.
+const memoryRuns = new Map<string, RunRow>();
+const memoryBests = new Map<string, RunRow>();
+const memoryReviveUsage = new Map<string, number>();
+const memoryReviveRequests = new Set<string>();
+
+// Only what the backend actually reads. The full ABI lives in the frontend.
+const arcadeAbi = [
+  {
+    type: "event",
+    name: "RunRecorded",
+    inputs: [
+      { name: "player", type: "address", indexed: true },
+      { name: "mode", type: "uint8", indexed: true },
+      { name: "level", type: "uint16", indexed: true },
+      { name: "runId", type: "uint256", indexed: false },
+      { name: "score", type: "uint256", indexed: false },
+      { name: "cells", type: "uint16", indexed: false },
+      { name: "moves", type: "uint32", indexed: false },
+      { name: "won", type: "bool", indexed: false },
+      { name: "personalBest", type: "bool", indexed: false },
+      { name: "paid", type: "uint256", indexed: false },
+      { name: "recordedAt", type: "uint256", indexed: false }
+    ]
+  },
+  {
+    type: "function",
+    name: "revivesPurchased",
+    stateMutability: "view",
+    inputs: [{ name: "player", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }]
+  }
+] as const;
 const pool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
+      connectionTimeoutMillis: 10_000,
       ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined
     })
   : null;
@@ -353,12 +412,69 @@ async function ensureSessionStore() {
     )
   `);
 
+  // One row per run that made it onchain. tx_hash is unique, so replaying the
+  // same transaction can never double-count a score.
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS recorded_runs (
-      address TEXT PRIMARY KEY,
-      first_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    CREATE TABLE IF NOT EXISTS runs (
+      id BIGSERIAL PRIMARY KEY,
+      tx_hash TEXT NOT NULL UNIQUE,
+      address TEXT NOT NULL,
+      mode TEXT NOT NULL CHECK (mode IN ('classic', 'levels')),
+      level SMALLINT NOT NULL,
+      score NUMERIC(78, 0) NOT NULL,
+      cells INTEGER NOT NULL,
+      moves BIGINT NOT NULL,
+      won BOOLEAN NOT NULL,
+      recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+
+  await pool.query("CREATE INDEX IF NOT EXISTS runs_player_idx ON runs (address, mode, level)");
+
+  // Best per board, and a board is (mode, level) — classic always sits at
+  // level 0, so the two modes can never overwrite each other.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS player_bests (
+      address TEXT NOT NULL,
+      mode TEXT NOT NULL CHECK (mode IN ('classic', 'levels')),
+      level SMALLINT NOT NULL,
+      score NUMERIC(78, 0) NOT NULL,
+      cells INTEGER NOT NULL,
+      moves BIGINT NOT NULL,
+      tx_hash TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (address, mode, level)
+    )
+  `);
+
+  // Purchases are counted onchain; this table is the other half of the sum —
+  // one row per revive actually spent.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS revive_usage (
+      id BIGSERIAL PRIMARY KEY,
+      address TEXT NOT NULL,
+      used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query("CREATE INDEX IF NOT EXISTS revive_usage_address_idx ON revive_usage (address)");
+  await pool.query("ALTER TABLE revive_usage ADD COLUMN IF NOT EXISTS request_id TEXT");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS revive_usage_request_idx ON revive_usage (address, request_id)");
+  // Preserve the full uint256 score and uint32 move count emitted by the contract.
+  // Apply only when upgrading an existing schema, not on every restart.
+  await pool.query(`DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = current_schema() AND table_name = 'runs'
+                 AND column_name = 'score' AND data_type = 'bigint') THEN
+      ALTER TABLE runs ALTER COLUMN score TYPE NUMERIC(78, 0), ALTER COLUMN moves TYPE BIGINT;
+      ALTER TABLE player_bests ALTER COLUMN score TYPE NUMERIC(78, 0), ALTER COLUMN moves TYPE BIGINT;
+    END IF;
+  END $$`);
+
+  // `recorded_runs` is superseded by `runs` and nothing writes to it any more.
+  // It is left alone rather than dropped: it holds one row per player who ever
+  // saved a run, and throwing that away on a deploy is not this function's call
+  // to make. Drop it by hand once you've decided you don't want the history.
 }
 
 async function getSession(token: string): Promise<Session | undefined> {
@@ -650,10 +766,6 @@ async function getNotificationAudience() {
   return addresses.slice(0, 1000);
 }
 
-void ensureSessionStore().catch((error) => {
-  console.error("Failed to initialize session store", error);
-});
-
 // Render terminates TLS in front of the app, so without this every request
 // looks like it comes from the proxy and the rate limiters share one bucket.
 app.set("trust proxy", 1);
@@ -736,6 +848,7 @@ app.get(
 app.post(
   "/api/auth/logout",
   writeLimiter,
+  requireAllowedOrigin,
   asyncRoute(async (req, res) => {
     const token = getAuthToken(req);
 
@@ -751,6 +864,7 @@ app.post(
 app.post(
   "/api/auth/verify",
   verifyLimiter,
+  requireAllowedOrigin,
   asyncRoute(async (req, res) => {
     const { message, mode, signature } = req.body as {
       message?: unknown;
@@ -792,6 +906,9 @@ app.post(
       return;
     }
 
+    // Claim before the RPC await: concurrent replays must not mint sessions.
+    nonces.delete(nonce);
+
     // viem.verifySiweMessage handles EOA, ERC-1271 (smart contract wallet),
     // and EIP-6492 (counterfactually-deployed Smart Wallet) signatures.
     let valid = false;
@@ -803,7 +920,9 @@ app.post(
         nonce
       });
     } catch (err) {
-      console.error("SIWE verification error", err);
+      console.error("SIWE verification RPC failed");
+      res.status(503).json({ error: "Wallet verification temporarily unavailable. Try signing in again." });
+      return;
     }
 
     if (!valid) {
@@ -895,7 +1014,7 @@ app.post(
     }
 
     if (!baseNotificationsApiKey || !baseAppUrl) {
-      res.status(501).json({ error: "Base notification env is not configured." });
+      res.status(501).json({ error: "Notifications are temporarily unavailable." });
       return;
     }
 
@@ -916,8 +1035,295 @@ app.post(
   })
 );
 
+// ── Runs ────────────────────────────────────────────────────────────────
+//
+// A score reaches the database through exactly one door: a transaction that
+// the arcade contract accepted. The client sends a hash and nothing else —
+// mode, level, score, cells and moves are all read back out of the event, so
+// there is no number here for anyone to inflate.
+
+function isTxHash(value: unknown): value is Hex {
+  return typeof value === "string" && /^0x[0-9a-fA-F]{64}$/.test(value);
+}
+
+type ArcadeRun = {
+  cells: number;
+  level: number;
+  mode: GameMode;
+  moves: number;
+  score: bigint;
+  won: boolean;
+};
+
+// uint256 scores don't always fit a JS number. Ours do, but the contract
+// accepts anything, so a huge one goes out as a string rather than as garbage.
+function scoreToJson(score: bigint) {
+  return score <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(score) : score.toString();
+}
+
+async function readRunFromTransaction(txHash: Hex, player: string): Promise<ArcadeRun | null> {
+  const receipt = await verifyClient.getTransactionReceipt({ hash: txHash });
+
+  if (receipt.status !== "success") {
+    return null;
+  }
+
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== arcadeAddress) {
+      continue;
+    }
+
+    let decoded;
+
+    try {
+      decoded = decodeEventLog({ abi: arcadeAbi, data: log.data, topics: log.topics });
+    } catch {
+      // Some other event from the same contract; not ours to read.
+      continue;
+    }
+
+    if (decoded.eventName !== "RunRecorded") {
+      continue;
+    }
+
+    const args = decoded.args as unknown as {
+      player: string;
+      mode: number;
+      level: number;
+      score: bigint;
+      cells: number;
+      moves: number;
+      won: boolean;
+    };
+
+    // A player can only file their own runs, whoever sent the transaction.
+    if (args.player.toLowerCase() !== player.toLowerCase()) {
+      continue;
+    }
+
+    return {
+      cells: Number(args.cells),
+      level: Number(args.level),
+      mode: args.mode === 1 ? "levels" : "classic",
+      moves: Number(args.moves),
+      score: args.score,
+      won: args.won
+    };
+  }
+
+  return null;
+}
+
+function bestKey(address: string, mode: GameMode, level: number) {
+  return `${address.toLowerCase()}:${mode}:${level}`;
+}
+
+function isBetter(candidate: RunRow, current: RunRow | undefined) {
+  if (!current) {
+    return true;
+  }
+
+  return (
+    candidate.score > current.score ||
+    (candidate.score === current.score && candidate.cells > current.cells)
+  );
+}
+
+async function saveRun(address: string, txHash: string, run: ArcadeRun) {
+  const key = address.toLowerCase();
+  const score = scoreToJson(run.score);
+
+  if (!pool) {
+    const row: RunRow = {
+      address: key,
+      cells: run.cells,
+      level: run.level,
+      mode: run.mode,
+      moves: run.moves,
+      score: run.score,
+      txHash,
+      won: run.won
+    };
+
+    memoryRuns.set(txHash, row);
+
+    const bestId = bestKey(key, run.mode, run.level);
+
+    if (isBetter(row, memoryBests.get(bestId))) {
+      memoryBests.set(bestId, row);
+    }
+
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `
+        INSERT INTO runs (tx_hash, address, mode, level, score, cells, moves, won)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (tx_hash) DO NOTHING
+      `,
+      [txHash, key, run.mode, run.level, String(score), run.cells, run.moves, run.won]
+    );
+
+    // The best only moves on a better run: a worse one still lands in `runs`.
+    await client.query(
+      `
+        INSERT INTO player_bests (address, mode, level, score, cells, moves, tx_hash)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (address, mode, level) DO UPDATE
+          SET score = EXCLUDED.score,
+              cells = EXCLUDED.cells,
+              moves = EXCLUDED.moves,
+              tx_hash = EXCLUDED.tx_hash,
+              updated_at = NOW()
+        WHERE EXCLUDED.score > player_bests.score
+           OR (EXCLUDED.score = player_bests.score AND EXCLUDED.cells > player_bests.cells)
+      `,
+      [key, run.mode, run.level, String(score), run.cells, run.moves, txHash]
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getBests(address: string) {
+  const key = address.toLowerCase();
+
+  if (!pool) {
+    return Array.from(memoryBests.values())
+      .filter((row) => row.address === key)
+      .map((row) => ({
+        cells: row.cells,
+        level: row.level,
+        mode: row.mode,
+        moves: row.moves,
+        score: scoreToJson(row.score)
+      }));
+  }
+
+  const result = await pool.query<{
+    cells: number;
+    level: number;
+    mode: GameMode;
+    moves: number;
+    score: string;
+  }>(
+    `SELECT mode, level, score, cells, moves
+       FROM player_bests
+      WHERE address = $1
+      ORDER BY mode, level`,
+    [key]
+  );
+
+  return result.rows.map((row) => ({
+    cells: row.cells,
+    level: row.level,
+    mode: row.mode,
+    moves: Number(row.moves),
+    score: scoreToJson(BigInt(row.score))
+  }));
+}
+
+// ── Revives ─────────────────────────────────────────────────────────────
+//
+// Purchases are counted onchain, spending is counted here. Reading the total
+// from the contract instead of mirroring every purchase means a dropped
+// request costs nobody their revives: the next balance check picks them up.
+
+async function readPurchasedRevives(address: string) {
+  if (!arcadeAddress) {
+    return 0;
+  }
+
+  const purchased = await verifyClient.readContract({
+    address: arcadeAddress as Hex,
+    abi: arcadeAbi,
+    functionName: "revivesPurchased",
+    args: [address as Hex]
+  });
+
+  return Number(purchased);
+}
+
+async function getReviveUsage(address: string) {
+  const key = address.toLowerCase();
+
+  if (!pool) {
+    return memoryReviveUsage.get(key) ?? 0;
+  }
+
+  const result = await pool.query<{ used: string }>(
+    "SELECT COUNT(*)::text AS used FROM revive_usage WHERE address = $1",
+    [key]
+  );
+
+  return Number(result.rows[0]?.used ?? 0);
+}
+
+async function consumeRevive(address: string, requestId: string) {
+  const key = address.toLowerCase();
+  const purchased = await readPurchasedRevives(key);
+
+  if (!pool) {
+    // No await between reading and updating: one atomic operation in Node.
+    const used = memoryReviveUsage.get(key) ?? 0;
+    const requestKey = `${key}:${requestId}`;
+    const replayed = memoryReviveRequests.has(requestKey);
+    const accepted = replayed || purchased > used;
+    const nextUsed = used + (accepted && !replayed ? 1 : 0);
+    if (accepted) {
+      memoryReviveUsage.set(key, nextUsed);
+      memoryReviveRequests.add(requestKey);
+    }
+    return { accepted, balance: Math.max(0, purchased - nextUsed), purchased, used: nextUsed };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Transaction-scoped lock works across backend instances as well.
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key]);
+    const result = await client.query<{ used: string; replayed: boolean }>(
+      `SELECT COUNT(*)::text AS used,
+              COALESCE(bool_or(request_id = $2), false) AS replayed
+         FROM revive_usage WHERE address = $1`,
+      [key, requestId]
+    );
+    const used = Number(result.rows[0].used);
+    const replayed = result.rows[0].replayed;
+    const accepted = replayed || purchased > used;
+    if (accepted && !replayed) {
+      await client.query("INSERT INTO revive_usage (address, request_id) VALUES ($1, $2)", [key, requestId]);
+    }
+    const nextUsed = used + (accepted && !replayed ? 1 : 0);
+    await client.query("COMMIT");
+    return { accepted, balance: Math.max(0, purchased - nextUsed), purchased, used: nextUsed };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getReviveBalance(address: string) {
+  const [purchased, used] = await Promise.all([
+    readPurchasedRevives(address),
+    getReviveUsage(address)
+  ]);
+
+  return { balance: Math.max(0, purchased - used), purchased, used };
+}
+
 app.post(
-  "/api/player/record",
+  "/api/runs",
   writeLimiter,
   requireAllowedOrigin,
   asyncRoute(async (req, res) => {
@@ -928,24 +1334,117 @@ app.post(
       return;
     }
 
-    const address = session.address.toLowerCase();
-
-    if (pool) {
-      await pool.query(
-        `INSERT INTO recorded_runs (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
-        [address]
-      );
-    } else {
-      recordedPlayers.add(address);
+    if (!arcadeAddress) {
+      res.status(503).json({ error: "Arcade contract is not configured." });
+      return;
     }
 
-    res.json({ ok: true });
+    const txHash = (req.body as { txHash?: unknown } | undefined)?.txHash;
+
+    if (!isTxHash(txHash)) {
+      res.status(400).json({ error: "A transaction hash is required." });
+      return;
+    }
+
+    let run: ArcadeRun | null;
+
+    try {
+      run = await readRunFromTransaction(txHash, session.address);
+    } catch (error) {
+      // Not mined yet, or the RPC hasn't caught up. Worth retrying, so say so
+      // with a status the client can tell apart from a rejection.
+      const pending = error instanceof TransactionReceiptNotFoundError;
+      res.setHeader("Retry-After", "2");
+      res.status(pending ? 409 : 503).json({
+        error: pending ? "Transaction is not confirmed yet." : "Blockchain RPC temporarily unavailable. Retry the same transaction hash."
+      });
+      return;
+    }
+
+    if (!run) {
+      res.status(400).json({ error: "That transaction did not record a run for this wallet." });
+      return;
+    }
+
+    await saveRun(session.address, txHash.toLowerCase(), run);
+
+    res.json({
+      ok: true,
+      run: {
+        cells: run.cells,
+        level: run.level,
+        mode: run.mode,
+        moves: run.moves,
+        score: scoreToJson(run.score),
+        won: run.won
+      },
+      bests: await getBests(session.address)
+    });
+  })
+);
+
+app.get(
+  "/api/runs/best",
+  readLimiter,
+  asyncRoute(async (req, res) => {
+    const { session } = await getRequestSession(req);
+
+    if (!session) {
+      res.status(401).json({ error: "Not authenticated." });
+      return;
+    }
+
+    res.json({ bests: await getBests(session.address) });
+  })
+);
+
+app.get(
+  "/api/revives",
+  readLimiter,
+  asyncRoute(async (req, res) => {
+    const { session } = await getRequestSession(req);
+
+    if (!session) {
+      res.status(401).json({ error: "Not authenticated." });
+      return;
+    }
+
+    res.json(await getReviveBalance(session.address));
+  })
+);
+
+app.post(
+  "/api/revives/use",
+  writeLimiter,
+  requireAllowedOrigin,
+  asyncRoute(async (req, res) => {
+    const { session } = await getRequestSession(req);
+
+    if (!session) {
+      res.status(401).json({ error: "Not authenticated." });
+      return;
+    }
+
+    // Older clients still work; new clients reuse this id after a lost response.
+    const requestId = req.get("Idempotency-Key") ?? randomUUID();
+    if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestId)) {
+      res.status(400).json({ error: "Invalid idempotency key." });
+      return;
+    }
+    const { accepted, ...balance } = await consumeRevive(session.address, requestId);
+
+    if (!accepted) {
+      res.status(409).json({ error: "No revives left.", ...balance });
+      return;
+    }
+
+    res.json(balance);
   })
 );
 
 // Paymaster proxy — forwards JSON-RPC to CDP Paymaster while keeping
 // the API key server-side. Only allows the methods needed for sponsorship.
-const cdpPaymasterUrl = process.env.CDP_PAYMASTER_URL ?? process.env.PAYMASTER_URL;
+const cdpPaymasterUrl = process.env.CDP_PAYMASTER_URL?.trim() || process.env.PAYMASTER_URL?.trim();
 const allowedPaymasterMethods = new Set([
   "pm_getPaymasterStubData",
   "pm_getPaymasterData",
@@ -1051,6 +1550,19 @@ setInterval(() => {
   });
 }, sessionCleanupIntervalMs).unref();
 
-app.listen(port, () => {
-  console.log(`Snake backend listening on http://localhost:${port}`);
+async function start() {
+  if (process.env.NODE_ENV === "production" && !databaseUrl) {
+    throw new Error("DATABASE_URL is required in production to persist paid revive usage.");
+  }
+  await ensureSessionStore();
+  if (!rpcUrl) console.warn("RPC_URL is unset; public Base RPC may rate-limit login and payments.");
+  app.listen(port, () => {
+    console.log(`Snake backend listening on http://localhost:${port}`);
+  });
+}
+
+void start().catch(() => {
+  console.error("Backend initialization failed. Check database connectivity and schema permissions.");
+  process.exitCode = 1;
+  void pool?.end();
 });

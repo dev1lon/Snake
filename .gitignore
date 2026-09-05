@@ -1,5 +1,6 @@
 node_modules
 dist
+.release-check/
 
 # Local assistant/tool state
 .claude/

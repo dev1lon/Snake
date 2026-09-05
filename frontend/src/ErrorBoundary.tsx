@@ -35,7 +35,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <button type="button" onClick={() => window.location.reload()}>
           Reload
         </button>
-        <code>{error.message}</code>
+        {import.meta.env.DEV && <code>{error.message}</code>}
       </div>
     );
   }

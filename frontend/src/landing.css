@@ -367,6 +367,7 @@
   bottom: var(--lnd-host-controls-clearance);
   display: flex;
   flex-direction: column;
+  gap: 10px;
   padding: 12px 0 8px;
   background: linear-gradient(to top, #02040a 45%, rgba(2,4,10,0.82) 75%, transparent);
   z-index: 20;
@@ -405,6 +406,111 @@
 
 .lnd-btn-play:hover  { opacity: 0.92; }
 .lnd-btn-play:active { transform: scale(0.98); }
+
+/* ── Mode picker ────────────────────────────────────────────── */
+.lnd-modes {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 18px;
+  padding-bottom: calc(18px + var(--lnd-host-controls-clearance));
+  background: rgba(2, 4, 10, 0.76);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: lnd-modes-fade 0.18s ease-out both;
+}
+
+.lnd-modes-card {
+  width: min(100%, 448px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(18, 25, 45, 0.96), rgba(6, 9, 18, 0.98));
+  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.95);
+  animation: lnd-modes-rise 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.lnd-modes-card h2 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.lnd-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #0052FF 0%, #0036A8 100%);
+  color: #fff;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.lnd-mode strong {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(1rem, 3.4vw, 1.15rem);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.lnd-mode small {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.lnd-mode-levels {
+  background: rgba(0, 229, 255, 0.08);
+  border-color: rgba(0, 229, 255, 0.42);
+  color: #00E5FF;
+}
+
+.lnd-mode-levels small { color: #8A95A5; }
+
+.lnd-mode:hover  { opacity: 0.94; }
+.lnd-mode:active { transform: scale(0.985); }
+
+.lnd-modes-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #E3E8F2;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.lnd-modes-back:hover { background: rgba(255, 255, 255, 0.1); }
+
+@keyframes lnd-modes-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes lnd-modes-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* Lightweight effects keep the design but avoid expensive mobile compositing. */
 .lnd-root.is-lite .lnd-grid {

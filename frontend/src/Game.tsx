@@ -3,20 +3,58 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsRight,
   ChevronUp,
+  Heart,
+  Minus,
   Pause,
   Play,
+  Plus,
   RotateCcw,
-  Save
+  Save,
+  X
 } from "lucide-react";
 import { waitForCallsStatus, waitForTransactionReceipt } from "@wagmi/core";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { encodeFunctionData, type Address, type Hex } from "viem";
-import { useAccount, useCapabilities, useSendCalls, useSwitchChain, useWriteContract } from "wagmi";
+import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { encodeFunctionData, formatEther, type Address, type Hex } from "viem";
+import {
+  useAccount,
+  useCapabilities,
+  useReadContracts,
+  useSendCalls,
+  useSwitchChain,
+  useWriteContract
+} from "wagmi";
 import { base } from "wagmi/chains";
 import { API_URL } from "./api";
-import { snakeRecordsAbi } from "./contracts";
+import { pendingRuns, queueRun, syncRun, type SentTransaction } from "./pendingRuns";
+import {
+  ARCADE_ADDRESS,
+  MODE_CLASSIC,
+  MODE_LEVELS,
+  snakeArcadeAbi,
+  snakeRecordsAbi
+} from "./contracts";
+import {
+  CLASSIC_BOARD,
+  clampLevel,
+  getLevel,
+  getLevelBest,
+  getLevelProgress,
+  LAST_LEVEL_INDEX,
+  storeLevelBest,
+  storeLevelProgress,
+  type BoardConfig
+} from "./levels";
+import {
+  hasPendingReviveSpend,
+  PAYMENTS_ARE_LIVE,
+  refreshRevives,
+  DEFAULT_PACK_REVIVES,
+  spendRevive,
+  useRevives
+} from "./revives";
 import { wagmiConfig } from "./wagmi";
 import { authHeaders, getStoredIsAdmin, WalletConnect } from "./WalletConnect";
 
@@ -36,16 +74,26 @@ type GameState = {
   score: number;
   moves: number;
   status: GameStatus;
+  // The board travels with the state: in level mode every level is a different
+  // grid, and the reducer, the renderer and the HUD all read it from here.
+  cols: number;
+  rows: number;
+  goal: number;
 };
 
 type Action =
   | { type: "start" }
   | { type: "pause" }
   | { type: "reset" }
+  | { type: "loadBoard"; board: BoardConfig; start?: boolean }
+  | { type: "startWithDirection"; direction: Direction }
+  | { type: "revive" }
   | { type: "move"; direction: Direction }
   | { type: "turnAndTick"; direction: Direction }
   | { type: "ensureFood" }
   | { type: "tick" };
+
+type Mode = "classic" | "levels";
 
 type StreakState = {
   authenticated: boolean;
@@ -57,9 +105,34 @@ type StreakState = {
   streak: number;
 };
 
-const BOARD_CELLS = 16;
-const TOTAL_CELLS = BOARD_CELLS * BOARD_CELLS;
 const START_LENGTH = 1;
+// The arcade contract takes cells as uint16 (capped at 4096) and moves as
+// uint32. Clamping keeps a long run from reverting on save.
+const MAX_ONCHAIN_CELLS = 4096;
+const MAX_ONCHAIN_MOVES = 4_294_967_295;
+
+// Prices are wei; this is only for showing them. Trailing zeros make a price
+// unreadable at a glance, and six decimals is more than enough on Base.
+function formatEth(value: bigint | null) {
+  if (value === null) {
+    return "…";
+  }
+
+  const eth = Number(formatEther(value));
+
+  return `${eth.toFixed(eth >= 0.01 ? 3 : 6).replace(/0+$/, "").replace(/\.$/, "")} ETH`;
+}
+
+function formatUsd(cents: number | null) {
+  return cents === null ? "…" : `$${(cents / 100).toFixed(2)}`;
+}
+
+// A quote is a block or two old by the time the transaction lands, and ETH
+// moves. Sending a little over covers that; the contract refunds the rest, so
+// the player is still charged exactly the dollar price.
+function withQuoteBuffer(value: bigint) {
+  return (value * 102n) / 100n;
+}
 const STEP_MS = 236;
 const BEST_RUN_STORAGE_KEY = "snake.bestRunCells";
 const DEFAULT_RECORD_CONTRACT_ADDRESS = "0x9e5d82E6B6419C066Bc57F5a70116659c468d780" as const;
@@ -80,6 +153,8 @@ const vectors: Record<Direction, Point> = {
   right: { x: 1, y: 0 }
 };
 
+const directionList: Direction[] = ["up", "right", "down", "left"];
+
 function samePoint(a: Point, b: Point) {
   return a.x === b.x && a.y === b.y;
 }
@@ -93,22 +168,24 @@ function isOpposite(a: Direction, b: Direction) {
   );
 }
 
-function makeInitialSnake(): Point[] {
-  const y = Math.floor(BOARD_CELLS / 2);
-  const x = Math.floor(BOARD_CELLS / 2);
-
-  return [{ x, y }];
+function makeInitialSnake(cols: number, rows: number): Point[] {
+  return [{ x: Math.floor(cols / 2), y: Math.floor(rows / 2) }];
 }
 
-function getFood(snake: Point[]): Point | null {
+function pointKey(point: Point) {
+  return `${point.x},${point.y}`;
+}
+
+function getFood(snake: Point[], cols: number, rows: number): Point | null {
+  // A set, not an inner some(): the largest level is 1024 cells and this runs
+  // every time the snake eats.
+  const taken = new Set(snake.map(pointKey));
   const freeCells: Point[] = [];
 
-  for (let y = 0; y < BOARD_CELLS; y += 1) {
-    for (let x = 0; x < BOARD_CELLS; x += 1) {
-      const cell = { x, y };
-
-      if (!snake.some((part) => samePoint(part, cell))) {
-        freeCells.push(cell);
+  for (let y = 0; y < rows; y += 1) {
+    for (let x = 0; x < cols; x += 1) {
+      if (!taken.has(`${x},${y}`)) {
+        freeCells.push({ x, y });
       }
     }
   }
@@ -120,29 +197,198 @@ function getFood(snake: Point[]): Point | null {
   return freeCells[Math.floor(Math.random() * freeCells.length)];
 }
 
-function isFoodValid(food: Point | null, snake: Point[]) {
+function isFoodValid(food: Point | null, snake: Point[], cols: number, rows: number) {
   return Boolean(
     food &&
       food.x >= 0 &&
       food.y >= 0 &&
-      food.x < BOARD_CELLS &&
-      food.y < BOARD_CELLS &&
+      food.x < cols &&
+      food.y < rows &&
       !snake.some((part) => samePoint(part, food))
   );
 }
 
-function createGame(status: GameStatus = "idle"): GameState {
-  const snake = makeInitialSnake();
+function createGame(board: BoardConfig = CLASSIC_BOARD, status: GameStatus = "idle"): GameState {
+  const snake = makeInitialSnake(board.cols, board.rows);
 
   return {
     snake,
-    food: getFood(snake),
+    food: getFood(snake, board.cols, board.rows),
     direction: "right",
     queuedDirection: "right",
     score: 0,
     moves: 0,
-    status
+    status,
+    cols: board.cols,
+    rows: board.rows,
+    goal: board.goal
   };
+}
+
+function boardOf(state: GameState): BoardConfig {
+  return { cols: state.cols, rows: state.rows, goal: state.goal };
+}
+
+function directionBetween(from: Point, to: Point): Direction | null {
+  if (to.x === from.x + 1 && to.y === from.y) return "right";
+  if (to.x === from.x - 1 && to.y === from.y) return "left";
+  if (to.y === from.y + 1 && to.x === from.x) return "down";
+  if (to.y === from.y - 1 && to.x === from.x) return "up";
+  return null;
+}
+
+// Every free cell you can actually reach from `start`, walking around the body.
+// One open cell next to the head means nothing — it can be the mouth of a
+// pocket two cells deep — so the revive is judged on reachable room, not on
+// whether the first step is legal.
+function reachableFrom(state: GameState, start: Point, blocked: Set<string>) {
+  const room = new Set<string>();
+  const inBounds = (cell: Point) =>
+    cell.x >= 0 && cell.y >= 0 && cell.x < state.cols && cell.y < state.rows;
+
+  if (!inBounds(start) || blocked.has(pointKey(start))) {
+    return room;
+  }
+
+  const queue: Point[] = [start];
+  room.add(pointKey(start));
+
+  while (queue.length > 0) {
+    const cell = queue.shift() as Point;
+
+    for (const direction of directionList) {
+      const vector = vectors[direction];
+      const next = { x: cell.x + vector.x, y: cell.y + vector.y };
+      const key = pointKey(next);
+
+      if (inBounds(next) && !blocked.has(key) && !room.has(key)) {
+        room.add(key);
+        queue.push(next);
+      }
+    }
+  }
+
+  return room;
+}
+
+// The roomiest legal first step, with the space it opens onto.
+function bestEscape(state: GameState) {
+  const head = state.snake[0];
+  // The tail cell empties as the snake moves, so it doesn't block.
+  const blocked = new Set(state.snake.slice(0, -1).map(pointKey));
+  let best: { direction: Direction; room: Set<string> } | null = null;
+
+  for (const direction of directionList) {
+    if (state.snake.length > 1 && isOpposite(state.direction, direction)) {
+      continue;
+    }
+
+    const vector = vectors[direction];
+    const room = reachableFrom(state, { x: head.x + vector.x, y: head.y + vector.y }, blocked);
+
+    if (room.size > 0 && (!best || room.size > best.room.size)) {
+      best = { direction, room };
+    }
+  }
+
+  return best;
+}
+
+// How much space makes a revive worth a dollar. Never more than the board has
+// left, so a nearly full board doesn't demand the impossible.
+function requiredRoom(state: GameState) {
+  const free = state.cols * state.rows - state.snake.length;
+
+  return Math.min(Math.max(8, Math.ceil(state.snake.length / 2)), Math.max(1, free));
+}
+
+function reverseSnake(state: GameState): GameState {
+  const snake = [...state.snake].reverse();
+
+  return {
+    ...state,
+    snake,
+    direction:
+      snake.length > 1 ? directionBetween(snake[1], snake[0]) ?? state.direction : state.direction
+  };
+}
+
+// Food inside a pocket the snake can't reach is the same as no food: the run
+// can move but never score. Keep it if it's in the open space, move it if not.
+function placeFoodInRoom(state: GameState, room: Set<string>): GameState {
+  if (state.food && room.has(pointKey(state.food))) {
+    return state;
+  }
+
+  const body = new Set(state.snake.map(pointKey));
+  const candidates = Array.from(room).filter((key) => !body.has(key));
+
+  if (candidates.length === 0) {
+    return state;
+  }
+
+  const [x, y] = candidates[Math.floor(Math.random() * candidates.length)].split(",");
+
+  return { ...state, food: { x: Number(x), y: Number(y) } };
+}
+
+// A revive is worthless if it hands back a run that can only crash again —
+// dying into a corner is exactly when people pay. In order: leave the way the
+// head can go, else swap head and tail (free, keeps the length), else give up
+// length from the tail until real space opens. Score and moves are never
+// touched, and the food is moved into whatever space the snake ends up in.
+function makePlayableAfterRevive(state: GameState): GameState {
+  const reversed = reverseSnake(state);
+  let trimmed = reversed.snake;
+  let roomiest: GameState | null = null;
+  let roomiestSize = -1;
+
+  // The head as it stands, then turned around, then shorter and shorter.
+  const attempt = (candidate: GameState): GameState | null => {
+    const escape = bestEscape(candidate);
+
+    if (!escape) {
+      return null;
+    }
+
+    const revived = placeFoodInRoom(
+      { ...candidate, direction: escape.direction, queuedDirection: escape.direction },
+      escape.room
+    );
+
+    if (escape.room.size > roomiestSize) {
+      roomiest = revived;
+      roomiestSize = escape.room.size;
+    }
+
+    return escape.room.size >= requiredRoom(candidate) ? revived : null;
+  };
+
+  const asIs = attempt(state);
+
+  if (asIs) {
+    return asIs;
+  }
+
+  const turnedAround = attempt(reversed);
+
+  if (turnedAround) {
+    return turnedAround;
+  }
+
+  while (trimmed.length > 1) {
+    trimmed = trimmed.slice(0, -1);
+
+    const shorter = attempt({ ...reversed, snake: trimmed });
+
+    if (shorter) {
+      return shorter;
+    }
+  }
+
+  // Nothing cleared the bar — hand back the roomiest option found, which on a
+  // board this full is the best there is.
+  return roomiest ?? state;
 }
 
 function calculateScore(length: number, moves: number, won: boolean) {
@@ -183,9 +429,19 @@ function getHexEnv(value: string | undefined): Hex | null {
 
 // dataSuffix is NOT a standard EIP-5792 capability — wallets ignore it.
 // For sendCalls we append BUILDER_CODE_SUFFIX manually to call data.
-const TRANSACTION_CAPABILITIES = PAYMASTER_URL
-  ? { paymasterService: { url: PAYMASTER_URL } }
-  : {};
+const TRANSACTION_CAPABILITIES = { paymasterService: { url: PAYMASTER_URL } };
+
+async function requireWalletSession(address: string) {
+  const response = await fetch(`${API_URL}/api/auth/me`, {
+    credentials: "include",
+    headers: authHeaders(),
+    signal: AbortSignal.timeout(10_000)
+  });
+  const session = response.ok ? await response.json() : null;
+  if (!session?.authenticated || session.address?.toLowerCase() !== address.toLowerCase()) {
+    throw new Error("Sign in with the connected wallet before making a payment.");
+  }
+}
 
 function withBuilderSuffix(data: Hex): Hex {
   return `${data}${BUILDER_CODE_SUFFIX.slice(2)}` as Hex;
@@ -194,26 +450,59 @@ function withBuilderSuffix(data: Hex): Hex {
 // A sent transaction, before anyone knows whether it landed. `reference` is a
 // bundle id for batched calls and a tx hash otherwise — they are not
 // interchangeable, so the kind travels with the value.
-type SentTransaction = {
-  kind: "calls" | "transaction";
-  reference: string;
-};
-
 // The wallet only tells us the call was accepted. Sponsorship can still be
 // refused and the call can still revert, so wait for a final status before
-// telling the player anything was saved.
-async function confirmTransaction(sent: SentTransaction) {
+// telling the player anything was saved. The hash travels back with it: the
+// backend stores a run only against the transaction that recorded it, and a
+// batched call's bundle id is not something it can look up.
+type ConfirmedTransaction = {
+  hash: Hex | null;
+  ok: boolean;
+};
+
+async function confirmTransaction(sent: SentTransaction): Promise<ConfirmedTransaction> {
   if (sent.kind === "calls") {
     const result = await waitForCallsStatus(wagmiConfig, { id: sent.reference });
 
-    return result.status === "success";
+    return {
+      hash: result.receipts?.[0]?.transactionHash ?? null,
+      ok: result.status === "success"
+    };
   }
 
   const receipt = await waitForTransactionReceipt(wagmiConfig, {
     hash: sent.reference as Hex
   });
 
-  return receipt.status === "success";
+  return { hash: receipt.transactionHash, ok: receipt.status === "success" };
+}
+
+// A run is only in the database if a transaction put it there: the backend
+// reads mode, level and score out of the event, so this sends nothing but the
+// hash. A freshly mined transaction can be ahead of the backend's RPC, which
+// answers 409 — worth waiting out, unlike any other failure.
+async function persistRun(txHash: string) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(`${API_URL}/api/runs`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ txHash }),
+      signal: AbortSignal.timeout(15_000)
+    });
+
+    if (response.ok) {
+      return true;
+    }
+
+    if (response.status !== 409 && response.status !== 503 && response.status !== 502) {
+      return false;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+
+  return false;
 }
 
 // Sponsorship is best-effort: if the paymaster is unconfigured or out of
@@ -255,11 +544,15 @@ function supportsBatching(capabilities: WalletCapabilities | undefined) {
 }
 
 function ensureFoodOnState(state: GameState): GameState {
-  if (state.status === "won" || state.snake.length >= TOTAL_CELLS || isFoodValid(state.food, state.snake)) {
+  if (
+    state.status === "won" ||
+    state.snake.length >= state.cols * state.rows ||
+    isFoodValid(state.food, state.snake, state.cols, state.rows)
+  ) {
     return state;
   }
 
-  return { ...state, food: getFood(state.snake) };
+  return { ...state, food: getFood(state.snake, state.cols, state.rows) };
 }
 
 function advanceGame(state: GameState, forcedDirection?: Direction): GameState {
@@ -273,14 +566,14 @@ function advanceGame(state: GameState, forcedDirection?: Direction): GameState {
     cleanState.snake.length > 1 && isOpposite(cleanState.direction, requestedDirection)
       ? cleanState.direction
       : requestedDirection;
-  const currentFood = isFoodValid(cleanState.food, cleanState.snake)
+  const currentFood = isFoodValid(cleanState.food, cleanState.snake, cleanState.cols, cleanState.rows)
     ? cleanState.food
-    : getFood(cleanState.snake);
+    : getFood(cleanState.snake, cleanState.cols, cleanState.rows);
   const head = cleanState.snake[0];
   const vector = vectors[direction];
   const nextHead = { x: head.x + vector.x, y: head.y + vector.y };
   const outOfBounds =
-    nextHead.x < 0 || nextHead.y < 0 || nextHead.x >= BOARD_CELLS || nextHead.y >= BOARD_CELLS;
+    nextHead.x < 0 || nextHead.y < 0 || nextHead.x >= cleanState.cols || nextHead.y >= cleanState.rows;
   const eating = currentFood ? samePoint(nextHead, currentFood) : false;
   const collisionBody = eating ? cleanState.snake : cleanState.snake.slice(0, -1);
   const selfHit = collisionBody.some((part) => samePoint(part, nextHead));
@@ -298,13 +591,15 @@ function advanceGame(state: GameState, forcedDirection?: Direction): GameState {
   const nextSnake = eating
     ? [nextHead, ...cleanState.snake]
     : [nextHead, ...cleanState.snake.slice(0, -1)];
-  const won = nextSnake.length === TOTAL_CELLS;
+  // Classic keeps the fill-the-board rule (goal === every cell); a level is
+  // cleared at its quota.
+  const won = nextSnake.length >= cleanState.goal;
   const moves = cleanState.moves + 1;
 
   return {
     ...cleanState,
     snake: nextSnake,
-    food: won ? null : eating || !currentFood ? getFood(nextSnake) : currentFood,
+    food: won ? null : eating || !currentFood ? getFood(nextSnake, cleanState.cols, cleanState.rows) : currentFood,
     direction,
     queuedDirection: direction,
     moves,
@@ -317,7 +612,7 @@ function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case "start":
       if (state.status === "idle" || state.status === "lost" || state.status === "won") {
-        return createGame("running");
+        return createGame(boardOf(state), "running");
       }
 
       return { ...state, status: "running" };
@@ -334,7 +629,53 @@ function reducer(state: GameState, action: Action): GameState {
       return state;
 
     case "reset":
-      return createGame("idle");
+      return createGame(boardOf(state), "idle");
+
+    case "loadBoard":
+      return createGame(action.board, action.start ? "running" : "idle");
+
+    // Pressing an arrow while the board is standing still both starts the run
+    // and turns: after a revive there is no time to hit play and then a key.
+    case "startWithDirection": {
+      if (state.status === "paused") {
+        // A snake can't reverse into its own neck. Starting in some *other*
+        // direction instead is worse than not starting: the player presses
+        // down, the snake leaves in the direction it was already facing, and
+        // the revive they just paid for is spent on a move they never asked
+        // for. So an impossible key simply doesn't start the run.
+        if (state.snake.length > 1 && isOpposite(state.direction, action.direction)) {
+          return state;
+        }
+
+        return {
+          ...state,
+          status: "running",
+          direction: action.direction,
+          queuedDirection: action.direction
+        };
+      }
+
+      if (state.status === "idle") {
+        return {
+          ...createGame(boardOf(state), "running"),
+          direction: action.direction,
+          queuedDirection: action.direction
+        };
+      }
+
+      return state;
+    }
+
+    // A revive resumes the run that just ended: same snake, same score, same
+    // move count — only the direction is nudged somewhere survivable, and the
+    // game waits paused so the player isn't dropped straight back into motion.
+    case "revive": {
+      if (state.status !== "lost") {
+        return state;
+      }
+
+      return ensureFoodOnState({ ...makePlayableAfterRevive(state), status: "paused" });
+    }
 
     case "move":
       if (state.snake.length > 1 && isOpposite(state.direction, action.direction)) {
@@ -367,6 +708,8 @@ function reducer(state: GameState, action: Action): GameState {
 
 function Game() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const mode: Mode = searchParams.get("mode") === "levels" ? "levels" : "classic";
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const coinImageRef = useRef<HTMLImageElement | null>(null);
   const animationFrameRef = useRef(0);
@@ -386,12 +729,24 @@ function Game() {
       isMountedRef.current = false;
     };
   }, []);
-  const [game, dispatch] = useReducer(reducer, undefined, () => createGame());
+  const [levelIndex, setLevelIndex] = useState(getLevelProgress);
+  const [game, dispatch] = useReducer(reducer, undefined, () =>
+    createGame(searchParams.get("mode") === "levels" ? getLevel(getLevelProgress()) : CLASSIC_BOARD)
+  );
+  const [isShopOpen, setIsShopOpen] = useState(false);
+  const [packQuantity, setPackQuantity] = useState(1);
+  const [isBuying, setIsBuying] = useState(false);
+  const [purchaseStatus, setPurchaseStatus] = useState<string | null>(null);
+  const [levelBest, setLevelBest] = useState(() =>
+    getLevelBest(searchParams.get("mode") === "levels" ? getLevelProgress() : 0)
+  );
+  const revives = useRevives();
   const [activeDirection, setActiveDirection] = useState<Direction | null>(null);
   const [coinReady, setCoinReady] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
   const [recordStatus, setRecordStatus] = useState<string | null>(null);
   const [recordSaved, setRecordSaved] = useState(false);
+  const saveInFlight = useRef(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [streak, setStreak] = useState<StreakState | null>(null);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
@@ -401,6 +756,41 @@ function Game() {
   const [isAdmin, setIsAdmin] = useState<boolean>(() => getStoredIsAdmin());
   const [bestRunCells, setBestRunCells] = useState(() => getStoredBestRunCells());
   const { address, connector, isConnected } = useAccount();
+  useEffect(() => {
+    if (!address || !ARCADE_ADDRESS) return;
+    const contract = ARCADE_ADDRESS;
+    let cancelled = false;
+    let working = false;
+    const retry = async () => {
+      if (working || cancelled) return;
+      working = true;
+      try {
+        const queued = pendingRuns(address, contract);
+        if (!queued.length) return;
+        await requireWalletSession(address);
+        for (const run of queued) {
+          if (cancelled) break;
+          await syncRun(run, confirmTransaction, async (hash) => {
+            if (cancelled) return false;
+            await requireWalletSession(address);
+            return persistRun(hash);
+          });
+        }
+      } catch { /* Retry when the session or network recovers. */ }
+      finally { working = false; }
+    };
+    const trigger = () => void retry();
+    trigger();
+    const timer = window.setInterval(trigger, 30_000);
+    window.addEventListener("online", trigger);
+    window.addEventListener("snake:auth-changed", trigger);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("online", trigger);
+      window.removeEventListener("snake:auth-changed", trigger);
+    };
+  }, [address]);
   const { sendCallsAsync, isPending: isSavingRecord } = useSendCalls();
   const { writeContractAsync, isPending: isWritingContract } = useWriteContract();
   const { data: walletCapabilities } = useCapabilities({
@@ -410,8 +800,32 @@ function Game() {
     }
   });
   const { switchChainAsync } = useSwitchChain();
+  // Prices are dollars in the contract; what to send is a quote it computes
+  // from the ETH/USD feed. So both are read: the cents for the label, the wei
+  // for the transaction. Quotes go stale as ETH moves, hence the refetch.
+  const { data: arcadeConfig } = useReadContracts({
+    contracts: [
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "quoteRecord", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "quoteSingleRevive", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "quotePacks", args: [1], chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "packRevives", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "singleRevivePriceCents", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "packRevivePriceCents", chainId: base.id }
+    ],
+    query: { enabled: Boolean(ARCADE_ADDRESS), refetchInterval: 60_000 }
+  });
 
-  const filledPercent = Math.round((game.snake.length / TOTAL_CELLS) * 100);
+  const recordPrice = (arcadeConfig?.[0]?.result as bigint | undefined) ?? null;
+  const singleRevivePrice = (arcadeConfig?.[1]?.result as bigint | undefined) ?? null;
+  const packRevivePrice = (arcadeConfig?.[2]?.result as bigint | undefined) ?? null;
+  const packRevives = (arcadeConfig?.[3]?.result as number | undefined) ?? DEFAULT_PACK_REVIVES;
+  const singleRevivePriceCents = (arcadeConfig?.[4]?.result as number | undefined) ?? null;
+  const packRevivePriceCents = (arcadeConfig?.[5]?.result as number | undefined) ?? null;
+
+  const totalCells = game.cols * game.rows;
+  const targetBoard = mode === "levels" ? getLevel(levelIndex) : CLASSIC_BOARD;
+  const isLastLevel = levelIndex >= LAST_LEVEL_INDEX;
+  const filledPercent = Math.min(100, Math.round((game.snake.length / game.goal) * 100));
   const gameEnded = game.status === "lost" || game.status === "won";
   const currentRunCells = Math.max(0, game.snake.length - START_LENGTH);
   const shownBestRunCells = Math.max(bestRunCells, currentRunCells);
@@ -430,10 +844,70 @@ function Game() {
     }
   }, [game.status]);
 
+  // The route keeps this component mounted when the mode changes, so the board
+  // is synced here rather than at mount. Comparing first keeps a board that was
+  // just loaded on purpose (next level) from being reset right back to idle.
+  useEffect(() => {
+    if (
+      game.cols === targetBoard.cols &&
+      game.rows === targetBoard.rows &&
+      game.goal === targetBoard.goal
+    ) {
+      return;
+    }
+
+    dispatch({ type: "loadBoard", board: targetBoard });
+  }, [targetBoard.cols, targetBoard.rows, targetBoard.goal, game.cols, game.rows, game.goal]);
+
+  // Clearing a level unlocks the next one.
+  useEffect(() => {
+    if (mode !== "levels" || game.status !== "won") {
+      return;
+    }
+
+    const unlocked = clampLevel(levelIndex + 1);
+
+    if (unlocked > getLevelProgress()) {
+      storeLevelProgress(unlocked);
+    }
+  }, [game.status, levelIndex, mode]);
+
+  useEffect(() => {
+    setLevelBest(getLevelBest(levelIndex));
+  }, [levelIndex]);
+
+  // Every finished run in level mode leaves its score against its level, so a
+  // saved record can name both.
+  useEffect(() => {
+    if (mode !== "levels" || (game.status !== "lost" && game.status !== "won")) {
+      return;
+    }
+
+    setLevelBest(storeLevelBest(levelIndex, game.score));
+  }, [game.status, game.score, levelIndex, mode]);
+
+  // Crashing costs the ladder: the next run starts at level 1. Stored right at
+  // the crash so closing the app mid-death screen doesn't dodge it, but the
+  // level in state is left alone — a revive continues the run that's still open.
+  useEffect(() => {
+    if (mode !== "levels" || game.status !== "lost") {
+      return;
+    }
+
+    storeLevelProgress(0);
+  }, [game.status, mode]);
+
   const queueDirection = (direction: Direction) => {
     const liveGame = gameRef.current;
     const canTurn = liveGame.snake.length <= 1 || !isOpposite(liveGame.direction, direction);
     const isNewDirection = liveGame.queuedDirection !== direction;
+
+    // Standing still: the arrow itself starts the run in that direction.
+    if (liveGame.status === "paused" || liveGame.status === "idle") {
+      accumulatorRef.current = 0;
+      dispatch({ type: "startWithDirection", direction });
+      return;
+    }
 
     if (liveGame.status === "running" && canTurn && isNewDirection) {
       accumulatorRef.current = 0;
@@ -527,10 +1001,14 @@ function Game() {
   }, [address, isConnected]);
 
   useEffect(() => {
-    if (game.status !== "won" && game.snake.length < TOTAL_CELLS && !isFoodValid(game.food, game.snake)) {
+    if (
+      game.status !== "won" &&
+      game.snake.length < totalCells &&
+      !isFoodValid(game.food, game.snake, game.cols, game.rows)
+    ) {
       dispatch({ type: "ensureFood" });
     }
-  }, [game.food, game.snake, game.status]);
+  }, [game.food, game.snake, game.status, game.cols, game.rows, totalCells]);
 
   useEffect(() => {
     if (!gameEnded) {
@@ -569,6 +1047,17 @@ function Game() {
         target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
 
       if (isTyping) {
+        return;
+      }
+
+      // The shop sits over the board: keys belong to the dialog while it's open,
+      // otherwise a mistyped key restarts the run behind it.
+      if (isShopOpen) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setIsShopOpen(false);
+        }
+
         return;
       }
 
@@ -617,7 +1106,7 @@ function Game() {
       window.removeEventListener("keydown", handleKeyDown, { capture: true });
       window.removeEventListener("keyup", handleKeyUp, { capture: true });
     };
-  }, [game.status]);
+  }, [game.status, isShopOpen]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -632,20 +1121,23 @@ function Game() {
       return;
     }
 
-    const logicalSize = 720;
+    // Logical width is fixed; height follows the board so a 32×16 level draws
+    // square cells instead of stretched ones. The panel matches via aspect-ratio.
+    const logicalWidth = 720;
     const drawFrame = (now: number) => {
       const devicePixelRatio = window.devicePixelRatio || 1;
       const lastFrameAt = lastFrameAtRef.current || now;
       const delta = Math.min(80, now - lastFrameAt);
       const liveGame = gameRef.current;
+      const logicalHeight = Math.round((logicalWidth * liveGame.rows) / liveGame.cols);
 
       lastFrameAtRef.current = now;
       if (
-        canvas.width !== logicalSize * devicePixelRatio ||
-        canvas.height !== logicalSize * devicePixelRatio
+        canvas.width !== logicalWidth * devicePixelRatio ||
+        canvas.height !== logicalHeight * devicePixelRatio
       ) {
-        canvas.width = logicalSize * devicePixelRatio;
-        canvas.height = logicalSize * devicePixelRatio;
+        canvas.width = logicalWidth * devicePixelRatio;
+        canvas.height = logicalHeight * devicePixelRatio;
         context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
       }
 
@@ -667,7 +1159,7 @@ function Game() {
         snake: interpolateSnake(previousSnakeRef.current, targetSnakeRef.current, easedProgress)
       };
 
-      drawGame(context, logicalSize, renderGame, coinReady ? coinImageRef.current : null);
+      drawGame(context, logicalWidth, logicalHeight, renderGame, coinReady ? coinImageRef.current : null);
 
       animationFrameRef.current = requestAnimationFrame(drawFrame);
     };
@@ -680,6 +1172,10 @@ function Game() {
 
   const statusText = useMemo(() => {
     if (game.status === "won") {
+      if (mode === "levels") {
+        return isLastLevel ? "All levels clear" : "Level clear";
+      }
+
       return "Screen filled";
     }
 
@@ -696,7 +1192,7 @@ function Game() {
     }
 
     return "Ready";
-  }, [game.status]);
+  }, [game.status, isLastLevel, mode]);
 
   const releaseFocus = () => {
     requestAnimationFrame(() => {
@@ -717,9 +1213,121 @@ function Game() {
   };
 
   const playAgain = () => {
+    // Starting over after a crash in level mode means starting over from the
+    // first board, not retrying the one that killed you.
+    if (mode === "levels" && game.status === "lost" && levelIndex > 0) {
+      setLevelIndex(0);
+      dispatch({ type: "loadBoard", board: getLevel(0), start: true });
+      releaseFocus();
+      return;
+    }
+
     dispatch({ type: "start" });
     releaseFocus();
   };
+
+  // No balance means the shop, not a dead end: buying while dead revives on the
+  // spot, which is the whole point of the $1 tier.
+  // With nothing in stock this buys the single revive — the one sold only here,
+  // at the crash — and spends it in the same press.
+  const useRevive = async () => {
+    if (isBuying) {
+      return;
+    }
+
+    setPurchaseStatus(null);
+    setIsBuying(true);
+
+    try {
+      if (PAYMENTS_ARE_LIVE) {
+        if (!address) throw new Error("Connect wallet first");
+        await requireWalletSession(address);
+      }
+      const available = await refreshRevives(true);
+      if (available <= 0 && !hasPendingReviveSpend()) {
+        if (PAYMENTS_ARE_LIVE) {
+          setPurchaseStatus("Confirming payment...");
+
+          const sent = await sendBuyRevivesTransaction(null);
+          const confirmed = await confirmTransaction(sent);
+
+          if (!confirmed.ok) {
+            throw new Error("Payment failed onchain");
+          }
+
+          await refreshRevives();
+        }
+      }
+
+      if (!(await spendRevive())) {
+        throw new Error("No revives available");
+      }
+
+      setPurchaseStatus(null);
+      dispatch({ type: "revive" });
+    } catch (caught) {
+      setPurchaseStatus(caught instanceof Error ? caught.message : "Purchase failed");
+    } finally {
+      if (isMountedRef.current) {
+        setIsBuying(false);
+      }
+
+      releaseFocus();
+    }
+  };
+
+  const buyPacks = async () => {
+    if (isBuying) {
+      return;
+    }
+
+    setPurchaseStatus(null);
+    setIsBuying(true);
+
+    try {
+      if (PAYMENTS_ARE_LIVE) {
+        setPurchaseStatus("Confirming payment...");
+
+        const sent = await sendBuyRevivesTransaction(packQuantity);
+        const confirmed = await confirmTransaction(sent);
+
+        if (!confirmed.ok) {
+          throw new Error("Payment failed onchain");
+        }
+
+        await refreshRevives();
+      } else {
+        throw new Error("Purchases are temporarily unavailable. Please try again later.");
+      }
+
+      setIsShopOpen(false);
+      setPackQuantity(1);
+      setPurchaseStatus(null);
+
+      // Bought mid-death: spend one straight away, which is what the player
+      // opened the shop for.
+      if (gameRef.current.status === "lost" && (await spendRevive())) {
+        dispatch({ type: "revive" });
+      }
+    } catch (caught) {
+      setPurchaseStatus(caught instanceof Error ? caught.message : "Purchase failed");
+    } finally {
+      if (isMountedRef.current) {
+        setIsBuying(false);
+      }
+
+      releaseFocus();
+    }
+  };
+
+  const goToNextLevel = () => {
+    const next = clampLevel(levelIndex + 1);
+
+    setLevelIndex(next);
+    dispatch({ type: "loadBoard", board: getLevel(next), start: true });
+    releaseFocus();
+  };
+
 
   const exitGame = () => {
     setRecordStatus(null);
@@ -728,8 +1336,8 @@ function Game() {
     releaseFocus();
   };
 
-  const sendBatchedCall = async (data: Hex): Promise<SentTransaction> => {
-    const calls = [{ data, to: RECORD_CONTRACT_ADDRESS }];
+  const sendBatchedCall = async (to: Address, data: Hex, value = 0n): Promise<SentTransaction> => {
+    const calls = [{ data, to, value }];
 
     try {
       const result = await sendCallsAsync({
@@ -760,6 +1368,7 @@ function Game() {
 
     if (shouldUseBatchCalls) {
       return sendBatchedCall(
+        RECORD_CONTRACT_ADDRESS,
         withBuilderSuffix(encodeFunctionData({ abi: snakeRecordsAbi, functionName: "checkIn" }))
       );
     }
@@ -775,33 +1384,112 @@ function Game() {
     return { kind: "transaction", reference: hash };
   };
 
+  // Saving carries the mode and the level, and costs the same in both modes.
+  // Classic always records at level 0, which is what keeps a classic score from
+  // ever landing on top of a level record.
   const sendRecordRunTransaction = async (): Promise<SentTransaction> => {
-    if (!RECORD_CONTRACT_ADDRESS) {
-      throw new Error("Set VITE_RECORD_CONTRACT_ADDRESS after deploy");
+    if (!ARCADE_ADDRESS) {
+      throw new Error("Saving is temporarily unavailable. Please try again later.");
     }
 
     if (!address) {
       throw new Error("Connect wallet first");
     }
 
-    const args = [BigInt(game.score), game.snake.length, game.status === "won", BigInt(game.moves)] as const;
+    await requireWalletSession(address);
+
+    if (recordPrice === null) {
+      throw new Error("Could not load the save price. Please try again.");
+    }
+
+    const value = withQuoteBuffer(recordPrice);
+
+    const args = [
+      mode === "levels" ? MODE_LEVELS : MODE_CLASSIC,
+      mode === "levels" ? levelIndex + 1 : 0,
+      BigInt(game.score),
+      Math.min(game.snake.length, MAX_ONCHAIN_CELLS),
+      Math.min(game.moves, MAX_ONCHAIN_MOVES),
+      game.status === "won"
+    ] as const;
 
     await switchChainAsync({ chainId: base.id });
 
     if (shouldUseBatchCalls) {
       return sendBatchedCall(
-        withBuilderSuffix(encodeFunctionData({ abi: snakeRecordsAbi, functionName: "recordRun", args }))
+        ARCADE_ADDRESS,
+        withBuilderSuffix(encodeFunctionData({ abi: snakeArcadeAbi, functionName: "recordRun", args })),
+        value
       );
     }
 
     const hash = await writeContractAsync({
-      address: RECORD_CONTRACT_ADDRESS,
-      abi: snakeRecordsAbi,
+      address: ARCADE_ADDRESS,
+      abi: snakeArcadeAbi,
       functionName: "recordRun",
       args,
+      value,
       chainId: base.id,
       dataSuffix: BUILDER_CODE_SUFFIX
     });
+
+    return { kind: "transaction", reference: hash };
+  };
+
+  // packs === null buys the single revive sold on the death screen.
+  const sendBuyRevivesTransaction = async (packs: number | null): Promise<SentTransaction> => {
+    if (!ARCADE_ADDRESS) {
+      throw new Error("Purchases are temporarily unavailable. Please try again later.");
+    }
+
+    if (!address) {
+      throw new Error("Connect wallet first");
+    }
+
+    await requireWalletSession(address);
+
+    const price = packs === null ? singleRevivePrice : packRevivePrice;
+
+    if (price === null) {
+      throw new Error("Could not load the price. Please try again.");
+    }
+
+    const value = withQuoteBuffer(packs === null ? price : price * BigInt(packs));
+
+    await switchChainAsync({ chainId: base.id });
+
+    const data =
+      packs === null
+        ? encodeFunctionData({ abi: snakeArcadeAbi, functionName: "buySingleRevive" })
+        : encodeFunctionData({
+            abi: snakeArcadeAbi,
+            functionName: "buyRevivePacks",
+            args: [packs] as const
+          });
+
+    if (shouldUseBatchCalls) {
+      return sendBatchedCall(ARCADE_ADDRESS, withBuilderSuffix(data), value);
+    }
+
+    const hash =
+      packs === null
+        ? await writeContractAsync({
+            address: ARCADE_ADDRESS,
+            abi: snakeArcadeAbi,
+            functionName: "buySingleRevive",
+            value,
+            chainId: base.id,
+            dataSuffix: BUILDER_CODE_SUFFIX
+          })
+        : await writeContractAsync({
+            address: ARCADE_ADDRESS,
+            abi: snakeArcadeAbi,
+            functionName: "buyRevivePacks",
+            args: [packs] as const,
+            value,
+            chainId: base.id,
+            dataSuffix: BUILDER_CODE_SUFFIX
+          });
 
     return { kind: "transaction", reference: hash };
   };
@@ -833,7 +1521,7 @@ function Game() {
         let confirmed = true;
 
         try {
-          confirmed = await confirmTransaction(sent);
+          confirmed = (await confirmTransaction(sent)).ok;
         } catch (caught) {
           console.warn("Could not confirm check-in", caught);
         }
@@ -903,15 +1591,17 @@ function Game() {
   };
 
   const saveRecord = async () => {
-    if (!gameEnded) {
+    if (!gameEnded || recordSaved || saveInFlight.current) {
       return;
     }
 
-    if (!RECORD_CONTRACT_ADDRESS) {
-      setRecordStatus("Set VITE_RECORD_CONTRACT_ADDRESS after deploy");
+    if (!ARCADE_ADDRESS) {
+      setRecordStatus("Saving is temporarily unavailable. Please try again later.");
       return;
     }
 
+    saveInFlight.current = true;
+    setIsConfirming(true);
     setRecordStatus(null);
 
     try {
@@ -920,41 +1610,41 @@ function Game() {
       }
 
       const sent = await sendRecordRunTransaction();
+      const pending = { ...sent, address, contract: ARCADE_ADDRESS };
+      queueRun(pending);
       if (!isMountedRef.current) return;
 
-      setRecordStatus(`Sent ${sent.reference.slice(0, 10)}... confirming`);
-      setIsConfirming(true);
-
-      // null = we stopped waiting, not that it failed.
-      let confirmed: boolean | null = true;
-
-      try {
-        confirmed = await confirmTransaction(sent);
-      } catch (caught) {
-        console.warn("Could not confirm record run", caught);
-        confirmed = null;
-      }
+      setRecordStatus("Confirming your record...");
+      setRecordSaved(true);
+      const result = await syncRun(pending, confirmTransaction, async (hash) => {
+        await requireWalletSession(address);
+        return persistRun(hash);
+      });
 
       if (!isMountedRef.current) return;
 
-      if (confirmed === false) {
+      if (result === "failed") {
+        setRecordSaved(false);
         setRecordStatus("Transaction failed onchain");
         return;
       }
 
       setRecordSaved(true);
-      setRecordStatus(confirmed ? "Record saved onchain" : "Sent — confirmation pending");
-
-      void fetch(`${API_URL}/api/player/record`, {
-        method: "POST",
-        credentials: "include",
-        headers: authHeaders()
-      }).catch((err) => console.error("Failed to record player", err));
+      // Name what was saved: on the ladder a bare number says nothing about
+      // which board earned it.
+      const runLabel =
+        mode === "levels"
+          ? `level ${levelIndex + 1}, score ${game.score}`
+          : `score ${game.score}`;
+      setRecordStatus(
+        result === "synced" ? `Saved — ${runLabel}` : `Sent — ${runLabel}. Sync will retry automatically; no new payment needed.`
+      );
     } catch (caught) {
       if (isMountedRef.current) {
         setRecordStatus(caught instanceof Error ? caught.message : "Record transaction failed");
       }
     } finally {
+      saveInFlight.current = false;
       if (isMountedRef.current) setIsConfirming(false);
     }
   };
@@ -965,12 +1655,23 @@ function Game() {
 
       {/* Header */}
       <header className="gs-header">
-        <div>
-          <div className="gs-brand-label">
-            <img src="/coin.png" alt="" className="gs-brand-icon" />
-            Base Snake
+        <div className="gs-header-left">
+          <button
+            className="gs-back-btn"
+            type="button"
+            onClick={exitGame}
+            title="Back to menu"
+            aria-label="Back to menu"
+          >
+            <ChevronLeft />
+          </button>
+          <div>
+            <div className="gs-brand-label">
+              <img src="/coin.png" alt="" className="gs-brand-icon" />
+              Base Snake
+            </div>
+            <h1 className="gs-title">{statusText}</h1>
           </div>
-          <h1 className="gs-title">{statusText}</h1>
         </div>
         <WalletConnect />
       </header>
@@ -978,8 +1679,26 @@ function Game() {
       {/* Stats bar */}
       <div className="gs-stats-bar">
         <div className="gs-stats-left">
-          <div className="gs-pill">{game.snake.length}/{TOTAL_CELLS}</div>
-          <div className="gs-pill">{filledPercent}%</div>
+          {mode === "levels" && (
+            <div className="gs-pill gs-pill-level">
+              LVL {levelIndex + 1}
+              <small>{game.cols}×{game.rows}</small>
+            </div>
+          )}
+          <div className="gs-pill">{game.snake.length}/{game.goal}</div>
+          {/* The level pill already takes the room the percentage used to have. */}
+          {mode === "classic" && <div className="gs-pill">{filledPercent}%</div>}
+          <button
+            className="gs-revive-pill"
+            type="button"
+            onClick={() => setIsShopOpen(true)}
+            title="Revives"
+            aria-label={`Revives: ${revives}`}
+          >
+            <Heart size={13} />
+            <strong>{revives}</strong>
+            <Plus size={11} />
+          </button>
         </div>
         <div className="gs-stats-right">
           {(isAdmin || streak?.isAdmin) && (
@@ -1020,7 +1739,10 @@ function Game() {
 
       {/* Game board */}
       <main className="gs-board-area">
-        <div className="gs-board-panel">
+        <div
+          className="gs-board-panel"
+          style={{ "--gs-board-aspect": game.cols / game.rows } as CSSProperties}
+        >
           <canvas ref={canvasRef} aria-label="Snake board" />
           {game.status === "paused" && (
             <div className="gs-pause-marks" aria-hidden="true">
@@ -1030,7 +1752,11 @@ function Game() {
           {game.status === "idle" && (
             <div className="gs-overlay" aria-live="polite">
               <strong>Press play</strong>
-              <p>Fill the board to finish the game.</p>
+              <p>
+                {mode === "levels"
+                  ? `Reach ${game.goal} cells to clear level ${levelIndex + 1}.`
+                  : "Fill the board to finish the game."}
+              </p>
               {streakStatus && <small>{streakStatus}</small>}
             </div>
           )}
@@ -1117,13 +1843,21 @@ function Game() {
             <div className="gs-end-title-wrap">
               <div className="gs-end-red-glow" />
               <h2 className={game.status === "won" ? "gs-end-title gs-end-title-win" : "gs-end-title"}>
-                {game.status === "won" ? (
+                {game.status !== "won" ? (
+                  <>
+                    GAME<br />OVER
+                  </>
+                ) : mode !== "levels" ? (
                   <>
                     SCREEN<br />FILLED
                   </>
+                ) : isLastLevel ? (
+                  <>
+                    ALL LEVELS<br />CLEAR
+                  </>
                 ) : (
                   <>
-                    GAME<br />OVER
+                    LEVEL {levelIndex + 1}<br />CLEAR
                   </>
                 )}
               </h2>
@@ -1140,10 +1874,67 @@ function Game() {
               </div>
             </div>
 
+            {mode === "levels" && (
+              <p className="gs-end-level-line">
+                Level {levelIndex + 1} · {game.cols}×{game.rows} · score {game.score}
+                {levelBest > game.score ? ` · best here ${levelBest}` : ""}
+              </p>
+            )}
+
             <div className="gs-end-actions">
+              {game.status === "lost" && (
+                <>
+                  <button
+                    className="gs-end-revive"
+                    type="button"
+                    onClick={() => void useRevive()}
+                    disabled={isBuying}
+                  >
+                    <Heart />
+                    <span>
+                      {isBuying
+                        ? "Paying..."
+                        : revives > 0
+                          ? `Revive · ${revives} left`
+                          : `Revive · ${
+                              PAYMENTS_ARE_LIVE ? formatUsd(singleRevivePriceCents) : "unavailable"
+                            }`}
+                    </span>
+                  </button>
+                  {PAYMENTS_ARE_LIVE && revives <= 0 && (
+                    <small className="gs-end-local-note">
+                      ≈ {formatEth(singleRevivePrice)} at the current rate
+                    </small>
+                  )}
+                  <button
+                    className="gs-end-shop-link"
+                    type="button"
+                    onClick={() => setIsShopOpen(true)}
+                  >
+                    or stock up · {packRevives} for{" "}
+                    {PAYMENTS_ARE_LIVE ? formatUsd(packRevivePriceCents) : "unavailable"}
+                  </button>
+                  {purchaseStatus && <small className="gs-end-local-note">{purchaseStatus}</small>}
+                </>
+              )}
+              {game.status === "won" && mode === "levels" && !isLastLevel && (
+                <button className="gs-end-next" type="button" onClick={goToNextLevel}>
+                  <ChevronsRight />
+                  <span>
+                    Level {levelIndex + 2} · {getLevel(levelIndex + 1).cols}×
+                    {getLevel(levelIndex + 1).rows}
+                  </span>
+                </button>
+              )}
               <button className="gs-end-save" type="button" disabled={isOnchainPending || recordSaved} onClick={saveRecord}>
                 <Save />
-                <span>{isOnchainPending ? "Saving..." : recordSaved ? "Saved" : "Save Record"}</span>
+                <span>
+                  {isOnchainPending
+                    ? "Saving..."
+                    : recordSaved
+                      ? "Submitted"
+                      : "Save Record"}
+                </span>
               </button>
               <button className="gs-end-play" type="button" onClick={playAgain}>
                 <Play />
@@ -1156,6 +1947,94 @@ function Game() {
             </div>
           </div>
         </section>
+      )}
+
+      {isShopOpen && (
+        <div className="gs-shop" role="dialog" aria-modal="true" aria-label="Revives">
+          <div className="gs-shop-card">
+            <button
+              className="gs-shop-close"
+              type="button"
+              onClick={() => setIsShopOpen(false)}
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+
+            <h3>Revives</h3>
+            <p className="gs-shop-lead">
+              A revive puts you back into the run you just lost, with the score intact and a way
+              out of the spot that killed you.
+            </p>
+
+            <div className="gs-shop-balance">
+              <Heart size={14} />
+              <strong>{revives}</strong>
+              <span>in stock</span>
+            </div>
+
+            <div className="gs-shop-pack">
+              <span className="gs-shop-pack-top">
+                <strong>{packRevives * packQuantity} revives</strong>
+                <em>
+                  {PAYMENTS_ARE_LIVE
+                    ? formatUsd(
+                        packRevivePriceCents === null ? null : packRevivePriceCents * packQuantity
+                      )
+                    : "Unavailable"}
+                </em>
+              </span>
+              <small>
+                {packQuantity} pack{packQuantity > 1 ? "s" : ""} × {packRevives} revives
+                {PAYMENTS_ARE_LIVE
+                  ? ` · ≈ ${formatEth(
+                      packRevivePrice === null ? null : packRevivePrice * BigInt(packQuantity)
+                    )}`
+                  : ""}
+              </small>
+
+              <div className="gs-shop-stepper">
+                <button
+                  type="button"
+                  onClick={() => setPackQuantity((value) => Math.max(1, value - 1))}
+                  disabled={packQuantity <= 1}
+                  aria-label="One pack fewer"
+                >
+                  <Minus size={16} />
+                </button>
+                <strong aria-live="polite">{packQuantity}</strong>
+                <button
+                  type="button"
+                  onClick={() => setPackQuantity((value) => value + 1)}
+                  aria-label="One pack more"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+
+              <button
+                className="gs-shop-buy"
+                type="button"
+                onClick={() => void buyPacks()}
+                disabled={isBuying || !PAYMENTS_ARE_LIVE || packRevivePrice === null}
+              >
+                {isBuying
+                  ? "Paying..."
+                  : `Buy · ${
+                      PAYMENTS_ARE_LIVE
+                        ? formatUsd(
+                            packRevivePriceCents === null
+                              ? null
+                              : packRevivePriceCents * packQuantity
+                          )
+                        : "unavailable"
+                    }`}
+              </button>
+              {purchaseStatus && <p className="gs-shop-note">{purchaseStatus}</p>}
+            </div>
+
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1265,13 +2144,14 @@ function interpolateSnake(previousSnake: Point[], targetSnake: Point[], progress
 
 function drawGame(
   context: CanvasRenderingContext2D,
-  size: number,
+  width: number,
+  height: number,
   game: GameState,
   coinImage: HTMLImageElement | null
 ) {
-  const cell = size / BOARD_CELLS;
+  const cell = width / game.cols;
 
-  context.clearRect(0, 0, size, size);
+  context.clearRect(0, 0, width, height);
 
   if (game.food) {
     drawCoin(context, game.food, cell, coinImage);
