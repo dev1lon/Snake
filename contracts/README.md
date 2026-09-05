@@ -36,6 +36,31 @@ cannot quietly ship the wrong number:
 constructor(uint256 singleRevivePrice, uint256 packRevivePrice, uint16 packRevives, uint256 recordPrice)
 ```
 
+The prices are dollar decisions — $1 a revive, $10 for twenty, $0.10 to save a
+run — so the wei only hold while ETH does. [prices.mjs](prices.mjs) does the
+conversion, rounding to one significant figure of ETH because `0.0004 ETH` is a
+number a player can read in a wallet prompt and `0.000406834825061` is not:
+
+```bash
+node contracts/prices.mjs          # fetches the ETH price
+node contracts/prices.mjs 2460     # or takes your own rate
+```
+
+At ETH ≈ $2460 that gives:
+
+| price | target | ETH | actual | wei |
+| --- | --- | --- | --- | --- |
+| `singleRevivePrice` | $1 | 0.0004 | $0.98 | `400000000000000` |
+| `packRevivePrice` | $10 | 0.004 | $9.84 | `4000000000000000` |
+| `recordPrice` | $0.10 | 0.00004 | $0.098 | `40000000000000` |
+
+```
+constructor(400000000000000, 4000000000000000, 20, 40000000000000)
+```
+
+Re-run the script and call `setPrices` with its output whenever ETH has moved
+far enough to matter.
+
 Compile with solc 0.8.24 or newer (verified against 0.8.26) and deploy to Base
 mainnet. Then:
 
