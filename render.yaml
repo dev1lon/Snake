@@ -22,6 +22,10 @@ services:
         sync: false
       - key: CDP_PAYMASTER_URL
         sync: false
+      # SnakeArcade address. Runs and revive purchases are read back from its
+      # events; without it the run endpoints answer 503.
+      - key: ARCADE_CONTRACT_ADDRESS
+        sync: false
       # Dedicated Base RPC. Every login verifies a Smart Wallet signature with
       # an eth_call, and the default public endpoint rate-limits.
       - key: RPC_URL
@@ -53,6 +57,10 @@ services:
           property: host
       - key: VITE_RECORD_CONTRACT_ADDRESS
         value: 0x9e5d82E6B6419C066Bc57F5a70116659c468d780
+      # SnakeArcade. Saving a run and buying revives both cost ETH and both go
+      # here; unset means the local sandbox.
+      - key: VITE_ARCADE_CONTRACT_ADDRESS
+        sync: false
       - key: VITE_BUILDER_CODE_SUFFIX
         value: 0x62635f38776576327439680b0080218021802180218021802180218021
       # Domain-restricted RPC key. Falls back to the public Base endpoint.

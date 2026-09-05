@@ -41,16 +41,35 @@ Two of them decide how the app behaves rather than just where it points:
   [levels.ts](frontend/src/levels.ts); 32×32 is the last level because smaller
   cells stop being readable on a phone.
 
-## Revives
+## Revives and saving
 
-Crashing offers a revive: the run resumes where it died, with the same length,
-score and move count. Balance and packs ($1 for one, $10 for twenty) live in
-[revives.ts](frontend/src/revives.ts).
+Crashing offers a revive: the run resumes where it died, with the same score and
+move count, and with real space to move — if the head is walled in the snake
+turns around, and it gives up length only when even that isn't enough.
 
-**This is a local build of the feature.** Nothing is charged, no wallet call is
-made, and a purchase only credits `localStorage` on that device plus a local
-ledger entry. Wiring real payments means a treasury address, a payment
-verification endpoint and a server-side balance — none of which exist yet.
+Both revives and saving are paid, in ETH, through
+[SnakeArcade](contracts/SnakeArcade.sol):
+
+- one revive, sold only at the crash;
+- packs of revives, sold in the shop, any number of packs at a time;
+- saving a run, charged the same in classic and in levels.
+
+Every price is a variable the contract owner can retune — see
+[contracts/README.md](contracts/README.md).
+
+Revives are counted onchain (`revivesPurchased` only grows) and spent through
+`POST /api/revives/use`; the balance a player sees is the difference. Without
+`VITE_ARCADE_CONTRACT_ADDRESS` the game runs a local sandbox instead: revives
+are granted rather than sold, and nothing is written to the database.
+
+## Runs in the database
+
+A score reaches Postgres through exactly one door: the transaction that recorded
+it. `POST /api/runs` takes a transaction hash and nothing else — mode, level,
+score, cells and moves are read back out of the contract's `RunRecorded` event,
+so there is no number for a client to inflate. `runs` keeps every saved run,
+`player_bests` keeps the best per `(address, mode, level)`, and classic always
+sits at level 0 so the two modes can never overwrite each other.
 
 ## Outside Base App
 

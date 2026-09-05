@@ -17,11 +17,24 @@ import {
 import { waitForCallsStatus, waitForTransactionReceipt } from "@wagmi/core";
 import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { encodeFunctionData, type Address, type Hex } from "viem";
-import { useAccount, useCapabilities, useSendCalls, useSwitchChain, useWriteContract } from "wagmi";
+import { encodeFunctionData, formatEther, type Address, type Hex } from "viem";
+import {
+  useAccount,
+  useCapabilities,
+  useReadContracts,
+  useSendCalls,
+  useSwitchChain,
+  useWriteContract
+} from "wagmi";
 import { base } from "wagmi/chains";
 import { API_URL } from "./api";
-import { snakeRecordsAbi } from "./contracts";
+import {
+  ARCADE_ADDRESS,
+  MODE_CLASSIC,
+  MODE_LEVELS,
+  snakeArcadeAbi,
+  snakeRecordsAbi
+} from "./contracts";
 import {
   CLASSIC_BOARD,
   clampLevel,
@@ -34,10 +47,10 @@ import {
   type BoardConfig
 } from "./levels";
 import {
-  PACK_REVIVE,
+  creditSandboxRevives,
   PAYMENTS_ARE_LIVE,
-  purchasePack,
-  SINGLE_REVIVE,
+  refreshRevives,
+  SANDBOX_PACK_REVIVES,
   spendRevive,
   useRevives
 } from "./revives";
@@ -92,9 +105,22 @@ type StreakState = {
 };
 
 const START_LENGTH = 1;
-// uint16 `cells` in the contract reverts above 256, so a run on a bigger level
-// board is reported clamped rather than reverting on save.
-const MAX_ONCHAIN_CELLS = 256;
+// The arcade contract takes cells as uint16 (capped at 4096) and moves as
+// uint32. Clamping keeps a long run from reverting on save.
+const MAX_ONCHAIN_CELLS = 4096;
+const MAX_ONCHAIN_MOVES = 4_294_967_295;
+
+// Prices are wei; this is only for showing them. Trailing zeros make a price
+// unreadable at a glance, and six decimals is more than enough on Base.
+function formatEth(value: bigint | null) {
+  if (value === null) {
+    return "…";
+  }
+
+  const eth = Number(formatEther(value));
+
+  return `${eth.toFixed(eth >= 0.01 ? 3 : 6).replace(/0+$/, "").replace(/\.$/, "")} ETH`;
+}
 const STEP_MS = 236;
 const BEST_RUN_STORAGE_KEY = "snake.bestRunCells";
 const DEFAULT_RECORD_CONTRACT_ADDRESS = "0x9e5d82E6B6419C066Bc57F5a70116659c468d780" as const;
@@ -409,19 +435,56 @@ type SentTransaction = {
 
 // The wallet only tells us the call was accepted. Sponsorship can still be
 // refused and the call can still revert, so wait for a final status before
-// telling the player anything was saved.
-async function confirmTransaction(sent: SentTransaction) {
+// telling the player anything was saved. The hash travels back with it: the
+// backend stores a run only against the transaction that recorded it, and a
+// batched call's bundle id is not something it can look up.
+type ConfirmedTransaction = {
+  hash: Hex | null;
+  ok: boolean;
+};
+
+async function confirmTransaction(sent: SentTransaction): Promise<ConfirmedTransaction> {
   if (sent.kind === "calls") {
     const result = await waitForCallsStatus(wagmiConfig, { id: sent.reference });
 
-    return result.status === "success";
+    return {
+      hash: result.receipts?.[0]?.transactionHash ?? null,
+      ok: result.status === "success"
+    };
   }
 
   const receipt = await waitForTransactionReceipt(wagmiConfig, {
     hash: sent.reference as Hex
   });
 
-  return receipt.status === "success";
+  return { hash: receipt.transactionHash, ok: receipt.status === "success" };
+}
+
+// A run is only in the database if a transaction put it there: the backend
+// reads mode, level and score out of the event, so this sends nothing but the
+// hash. A freshly mined transaction can be ahead of the backend's RPC, which
+// answers 409 — worth waiting out, unlike any other failure.
+async function persistRun(txHash: Hex) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(`${API_URL}/api/runs`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ txHash })
+    });
+
+    if (response.ok) {
+      return true;
+    }
+
+    if (response.status !== 409) {
+      return false;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+
+  return false;
 }
 
 // Sponsorship is best-effort: if the paymaster is unconfigured or out of
@@ -654,6 +717,8 @@ function Game() {
   );
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [packQuantity, setPackQuantity] = useState(1);
+  const [isBuying, setIsBuying] = useState(false);
+  const [purchaseStatus, setPurchaseStatus] = useState<string | null>(null);
   const [levelBest, setLevelBest] = useState(() =>
     getLevelBest(searchParams.get("mode") === "levels" ? getLevelProgress() : 0)
   );
@@ -681,6 +746,22 @@ function Game() {
     }
   });
   const { switchChainAsync } = useSwitchChain();
+  // Prices live in the contract and the owner can retune them, so they are read
+  // rather than hardcoded — and re-read before every purchase quote.
+  const { data: arcadeConfig } = useReadContracts({
+    contracts: [
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "recordPrice", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "singleRevivePrice", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "packRevivePrice", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "packRevives", chainId: base.id }
+    ],
+    query: { enabled: Boolean(ARCADE_ADDRESS) }
+  });
+
+  const recordPrice = (arcadeConfig?.[0]?.result as bigint | undefined) ?? null;
+  const singleRevivePrice = (arcadeConfig?.[1]?.result as bigint | undefined) ?? null;
+  const packRevivePrice = (arcadeConfig?.[2]?.result as bigint | undefined) ?? null;
+  const packRevives = (arcadeConfig?.[3]?.result as number | undefined) ?? SANDBOX_PACK_REVIVES;
 
   const totalCells = game.cols * game.rows;
   const targetBoard = mode === "levels" ? getLevel(levelIndex) : CLASSIC_BOARD;
@@ -1088,30 +1169,93 @@ function Game() {
 
   // No balance means the shop, not a dead end: buying while dead revives on the
   // spot, which is the whole point of the $1 tier.
-  // With nothing in stock this is the $1 single, which exists only here — at the
-  // crash, where one revive is worth a dollar. It buys and spends in one press.
-  const useRevive = () => {
-    if (revives <= 0) {
-      purchasePack(SINGLE_REVIVE);
+  // With nothing in stock this buys the single revive — the one sold only here,
+  // at the crash — and spends it in the same press.
+  const useRevive = async () => {
+    if (isBuying) {
+      return;
     }
 
-    if (spendRevive()) {
+    setPurchaseStatus(null);
+    setIsBuying(true);
+
+    try {
+      if (revives <= 0) {
+        if (PAYMENTS_ARE_LIVE) {
+          setPurchaseStatus("Confirming payment...");
+
+          const sent = await sendBuyRevivesTransaction(null);
+          const confirmed = await confirmTransaction(sent);
+
+          if (!confirmed.ok) {
+            throw new Error("Payment failed onchain");
+          }
+
+          await refreshRevives();
+        } else {
+          creditSandboxRevives(1);
+        }
+      }
+
+      if (!(await spendRevive())) {
+        throw new Error("No revives available");
+      }
+
+      setPurchaseStatus(null);
       dispatch({ type: "revive" });
-    }
+    } catch (caught) {
+      setPurchaseStatus(caught instanceof Error ? caught.message : "Purchase failed");
+    } finally {
+      if (isMountedRef.current) {
+        setIsBuying(false);
+      }
 
-    releaseFocus();
+      releaseFocus();
+    }
   };
 
-  const buyPacks = () => {
-    purchasePack(PACK_REVIVE, packQuantity);
-    setIsShopOpen(false);
-    setPackQuantity(1);
-
-    if (gameRef.current.status === "lost" && spendRevive()) {
-      dispatch({ type: "revive" });
+  const buyPacks = async () => {
+    if (isBuying) {
+      return;
     }
 
-    releaseFocus();
+    setPurchaseStatus(null);
+    setIsBuying(true);
+
+    try {
+      if (PAYMENTS_ARE_LIVE) {
+        setPurchaseStatus("Confirming payment...");
+
+        const sent = await sendBuyRevivesTransaction(packQuantity);
+        const confirmed = await confirmTransaction(sent);
+
+        if (!confirmed.ok) {
+          throw new Error("Payment failed onchain");
+        }
+
+        await refreshRevives();
+      } else {
+        creditSandboxRevives(SANDBOX_PACK_REVIVES * packQuantity);
+      }
+
+      setIsShopOpen(false);
+      setPackQuantity(1);
+      setPurchaseStatus(null);
+
+      // Bought mid-death: spend one straight away, which is what the player
+      // opened the shop for.
+      if (gameRef.current.status === "lost" && (await spendRevive())) {
+        dispatch({ type: "revive" });
+      }
+    } catch (caught) {
+      setPurchaseStatus(caught instanceof Error ? caught.message : "Purchase failed");
+    } finally {
+      if (isMountedRef.current) {
+        setIsBuying(false);
+      }
+
+      releaseFocus();
+    }
   };
 
   const goToNextLevel = () => {
@@ -1130,8 +1274,8 @@ function Game() {
     releaseFocus();
   };
 
-  const sendBatchedCall = async (data: Hex): Promise<SentTransaction> => {
-    const calls = [{ data, to: RECORD_CONTRACT_ADDRESS }];
+  const sendBatchedCall = async (to: Address, data: Hex, value = 0n): Promise<SentTransaction> => {
+    const calls = [{ data, to, value }];
 
     try {
       const result = await sendCallsAsync({
@@ -1162,6 +1306,7 @@ function Game() {
 
     if (shouldUseBatchCalls) {
       return sendBatchedCall(
+        RECORD_CONTRACT_ADDRESS,
         withBuilderSuffix(encodeFunctionData({ abi: snakeRecordsAbi, functionName: "checkIn" }))
       );
     }
@@ -1177,38 +1322,106 @@ function Game() {
     return { kind: "transaction", reference: hash };
   };
 
+  // Saving carries the mode and the level, and costs the same in both modes.
+  // Classic always records at level 0, which is what keeps a classic score from
+  // ever landing on top of a level record.
   const sendRecordRunTransaction = async (): Promise<SentTransaction> => {
-    if (!RECORD_CONTRACT_ADDRESS) {
-      throw new Error("Set VITE_RECORD_CONTRACT_ADDRESS after deploy");
+    if (!ARCADE_ADDRESS) {
+      throw new Error("Set VITE_ARCADE_CONTRACT_ADDRESS after deploy");
     }
 
     if (!address) {
       throw new Error("Connect wallet first");
     }
 
+    if (recordPrice === null) {
+      throw new Error("Could not read the save price from the contract");
+    }
+
     const args = [
+      mode === "levels" ? MODE_LEVELS : MODE_CLASSIC,
+      mode === "levels" ? levelIndex + 1 : 0,
       BigInt(game.score),
       Math.min(game.snake.length, MAX_ONCHAIN_CELLS),
-      game.status === "won",
-      BigInt(game.moves)
+      Math.min(game.moves, MAX_ONCHAIN_MOVES),
+      game.status === "won"
     ] as const;
 
     await switchChainAsync({ chainId: base.id });
 
     if (shouldUseBatchCalls) {
       return sendBatchedCall(
-        withBuilderSuffix(encodeFunctionData({ abi: snakeRecordsAbi, functionName: "recordRun", args }))
+        ARCADE_ADDRESS,
+        withBuilderSuffix(encodeFunctionData({ abi: snakeArcadeAbi, functionName: "recordRun", args })),
+        recordPrice
       );
     }
 
     const hash = await writeContractAsync({
-      address: RECORD_CONTRACT_ADDRESS,
-      abi: snakeRecordsAbi,
+      address: ARCADE_ADDRESS,
+      abi: snakeArcadeAbi,
       functionName: "recordRun",
       args,
+      value: recordPrice,
       chainId: base.id,
       dataSuffix: BUILDER_CODE_SUFFIX
     });
+
+    return { kind: "transaction", reference: hash };
+  };
+
+  // packs === null buys the single revive sold on the death screen.
+  const sendBuyRevivesTransaction = async (packs: number | null): Promise<SentTransaction> => {
+    if (!ARCADE_ADDRESS) {
+      throw new Error("Set VITE_ARCADE_CONTRACT_ADDRESS after deploy");
+    }
+
+    if (!address) {
+      throw new Error("Connect wallet first");
+    }
+
+    const price = packs === null ? singleRevivePrice : packRevivePrice;
+
+    if (price === null) {
+      throw new Error("Could not read the price from the contract");
+    }
+
+    const value = packs === null ? price : price * BigInt(packs);
+
+    await switchChainAsync({ chainId: base.id });
+
+    const data =
+      packs === null
+        ? encodeFunctionData({ abi: snakeArcadeAbi, functionName: "buySingleRevive" })
+        : encodeFunctionData({
+            abi: snakeArcadeAbi,
+            functionName: "buyRevivePacks",
+            args: [packs] as const
+          });
+
+    if (shouldUseBatchCalls) {
+      return sendBatchedCall(ARCADE_ADDRESS, withBuilderSuffix(data), value);
+    }
+
+    const hash =
+      packs === null
+        ? await writeContractAsync({
+            address: ARCADE_ADDRESS,
+            abi: snakeArcadeAbi,
+            functionName: "buySingleRevive",
+            value,
+            chainId: base.id,
+            dataSuffix: BUILDER_CODE_SUFFIX
+          })
+        : await writeContractAsync({
+            address: ARCADE_ADDRESS,
+            abi: snakeArcadeAbi,
+            functionName: "buyRevivePacks",
+            args: [packs] as const,
+            value,
+            chainId: base.id,
+            dataSuffix: BUILDER_CODE_SUFFIX
+          });
 
     return { kind: "transaction", reference: hash };
   };
@@ -1240,7 +1453,7 @@ function Game() {
         let confirmed = true;
 
         try {
-          confirmed = await confirmTransaction(sent);
+          confirmed = (await confirmTransaction(sent)).ok;
         } catch (caught) {
           console.warn("Could not confirm check-in", caught);
         }
@@ -1314,8 +1527,8 @@ function Game() {
       return;
     }
 
-    if (!RECORD_CONTRACT_ADDRESS) {
-      setRecordStatus("Set VITE_RECORD_CONTRACT_ADDRESS after deploy");
+    if (!ARCADE_ADDRESS) {
+      setRecordStatus("Set VITE_ARCADE_CONTRACT_ADDRESS after deploy");
       return;
     }
 
@@ -1333,7 +1546,7 @@ function Game() {
       setIsConfirming(true);
 
       // null = we stopped waiting, not that it failed.
-      let confirmed: boolean | null = true;
+      let confirmed: ConfirmedTransaction | null = { hash: null, ok: true };
 
       try {
         confirmed = await confirmTransaction(sent);
@@ -1344,7 +1557,7 @@ function Game() {
 
       if (!isMountedRef.current) return;
 
-      if (confirmed === false) {
+      if (confirmed && !confirmed.ok) {
         setRecordStatus("Transaction failed onchain");
         return;
       }
@@ -1360,11 +1573,14 @@ function Game() {
         confirmed ? `Saved onchain — ${runLabel}` : `Sent — ${runLabel}, confirmation pending`
       );
 
-      void fetch(`${API_URL}/api/player/record`, {
-        method: "POST",
-        credentials: "include",
-        headers: authHeaders()
-      }).catch((err) => console.error("Failed to record player", err));
+      // The database only ever learns about a run through its transaction.
+      if (confirmed?.hash) {
+        const stored = await persistRun(confirmed.hash);
+
+        if (isMountedRef.current && !stored) {
+          setRecordStatus(`Saved onchain — ${runLabel} (leaderboard sync pending)`);
+        }
+      }
     } catch (caught) {
       if (isMountedRef.current) {
         setRecordStatus(caught instanceof Error ? caught.message : "Record transaction failed");
@@ -1609,12 +1825,19 @@ function Game() {
             <div className="gs-end-actions">
               {game.status === "lost" && (
                 <>
-                  <button className="gs-end-revive" type="button" onClick={useRevive}>
+                  <button
+                    className="gs-end-revive"
+                    type="button"
+                    onClick={() => void useRevive()}
+                    disabled={isBuying}
+                  >
                     <Heart />
                     <span>
-                      {revives > 0
-                        ? `Revive · ${revives} left`
-                        : `Revive · $${SINGLE_REVIVE.priceUsd}`}
+                      {isBuying
+                        ? "Paying..."
+                        : revives > 0
+                          ? `Revive · ${revives} left`
+                          : `Revive · ${PAYMENTS_ARE_LIVE ? formatEth(singleRevivePrice) : "free (local)"}`}
                     </span>
                   </button>
                   <button
@@ -1622,11 +1845,13 @@ function Game() {
                     type="button"
                     onClick={() => setIsShopOpen(true)}
                   >
-                    or stock up · {PACK_REVIVE.revives} for ${PACK_REVIVE.priceUsd}
+                    or stock up · {packRevives} for{" "}
+                    {PAYMENTS_ARE_LIVE ? formatEth(packRevivePrice) : "free (local)"}
                   </button>
+                  {purchaseStatus && <small className="gs-end-local-note">{purchaseStatus}</small>}
                   {!PAYMENTS_ARE_LIVE && revives <= 0 && (
                     <small className="gs-end-local-note">
-                      Local build — the $1 revive is granted, not charged.
+                      No arcade contract configured — revives are granted, not charged.
                     </small>
                   )}
                 </>
@@ -1642,7 +1867,13 @@ function Game() {
               )}
               <button className="gs-end-save" type="button" disabled={isOnchainPending || recordSaved} onClick={saveRecord}>
                 <Save />
-                <span>{isOnchainPending ? "Saving..." : recordSaved ? "Saved" : "Save Record"}</span>
+                <span>
+                  {isOnchainPending
+                    ? "Saving..."
+                    : recordSaved
+                      ? "Saved"
+                      : `Save Record${PAYMENTS_ARE_LIVE ? ` · ${formatEth(recordPrice)}` : ""}`}
+                </span>
               </button>
               <button className="gs-end-play" type="button" onClick={playAgain}>
                 <Play />
@@ -1683,12 +1914,16 @@ function Game() {
 
             <div className="gs-shop-pack">
               <span className="gs-shop-pack-top">
-                <strong>{PACK_REVIVE.revives * packQuantity} revives</strong>
-                <em>${PACK_REVIVE.priceUsd * packQuantity}</em>
+                <strong>{packRevives * packQuantity} revives</strong>
+                <em>
+                  {PAYMENTS_ARE_LIVE
+                    ? formatEth(packRevivePrice === null ? null : packRevivePrice * BigInt(packQuantity))
+                    : "free"}
+                </em>
               </span>
               <small>
-                {PACK_REVIVE.hint} · {packQuantity} pack{packQuantity > 1 ? "s" : ""} × $
-                {PACK_REVIVE.priceUsd}
+                {packQuantity} pack{packQuantity > 1 ? "s" : ""} × {packRevives} revives
+                {PAYMENTS_ARE_LIVE ? ` · ${formatEth(packRevivePrice)} each` : " · local sandbox"}
               </small>
 
               <div className="gs-shop-stepper">
@@ -1710,9 +1945,23 @@ function Game() {
                 </button>
               </div>
 
-              <button className="gs-shop-buy" type="button" onClick={buyPacks}>
-                Buy · ${PACK_REVIVE.priceUsd * packQuantity}
+              <button
+                className="gs-shop-buy"
+                type="button"
+                onClick={() => void buyPacks()}
+                disabled={isBuying || (PAYMENTS_ARE_LIVE && packRevivePrice === null)}
+              >
+                {isBuying
+                  ? "Paying..."
+                  : `Buy · ${
+                      PAYMENTS_ARE_LIVE
+                        ? formatEth(
+                            packRevivePrice === null ? null : packRevivePrice * BigInt(packQuantity)
+                          )
+                        : "free"
+                    }`}
               </button>
+              {purchaseStatus && <p className="gs-shop-note">{purchaseStatus}</p>}
             </div>
 
             {!PAYMENTS_ARE_LIVE && (
