@@ -55,19 +55,49 @@ export const snakeArcadeAbi = [
     inputs: [{ name: "packs", type: "uint16" }],
     outputs: []
   },
+  // Prices are held in cents and converted through the ETH/USD feed, so the
+  // wei to send is a quote, not a constant.
   {
     type: "function",
-    name: "singleRevivePrice",
+    name: "quoteRecord",
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }]
   },
   {
     type: "function",
-    name: "packRevivePrice",
+    name: "quoteSingleRevive",
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }]
+  },
+  {
+    type: "function",
+    name: "quotePacks",
+    stateMutability: "view",
+    inputs: [{ name: "packs", type: "uint16" }],
+    outputs: [{ name: "", type: "uint256" }]
+  },
+  {
+    type: "function",
+    name: "singleRevivePriceCents",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint32" }]
+  },
+  {
+    type: "function",
+    name: "packRevivePriceCents",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint32" }]
+  },
+  {
+    type: "function",
+    name: "recordPriceCents",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint32" }]
   },
   {
     type: "function",
@@ -75,13 +105,6 @@ export const snakeArcadeAbi = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint16" }]
-  },
-  {
-    type: "function",
-    name: "recordPrice",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }]
   },
   {
     type: "function",

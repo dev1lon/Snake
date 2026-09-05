@@ -4,21 +4,35 @@
 // shanghai target this compiles to by default is fine.
 pragma solidity ^0.8.20;
 
+/// The slice of a Chainlink feed this contract uses.
+interface AggregatorV3Interface {
+    function decimals() external view returns (uint8);
+
+    function latestRoundData()
+        external
+        view
+        returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
+}
+
 /// @title SnakeArcade
 /// @notice Records Base Snake runs and sells revives. Replaces SnakeRecords,
 ///         which had no notion of a game mode, no level and no way to charge
 ///         for anything.
 ///
-/// Two things drove the design:
+/// Three things drove the design:
 ///
 /// 1. **Classic and Levels never share a record.** A run carries its mode, and
 ///    a classic run is always stored at level 0, so a classic score can never
 ///    land on top of a level score that happens to use the same board size.
 ///
-/// 2. **Every price is a variable, not a constant.** These are dollar decisions
-///    paid in ETH, and ETH moves — pinning wei into the bytecode would mean
-///    redeploying every time the market does something. The owner can retune
-///    them; nothing else about the contract can be changed.
+/// 2. **Prices are dollars, not ether.** A revive is a dollar; that is the
+///    product decision. Storing wei would mean the price drifts with every
+///    move of the market, so prices are held in cents and converted at payment
+///    time through the Chainlink ETH/USD feed.
+///
+/// 3. **Overpayment comes back.** The quote a player sees is a block or two
+///    old by the time it lands, so the frontend sends a little extra and the
+///    contract returns the difference. Nobody is charged more than the price.
 contract SnakeArcade {
     // ── Modes ─────────────────────────────────────────────────────────────
     uint8 public constant MODE_CLASSIC = 0;
@@ -32,14 +46,23 @@ contract SnakeArcade {
     // ── Ownership ─────────────────────────────────────────────────────────
     address public owner;
 
-    // ── Prices, all in wei ────────────────────────────────────────────────
-    /// One revive, sold at the moment of the crash.
-    uint256 public singleRevivePrice;
-    /// One pack of `packRevives` revives, sold in the shop.
-    uint256 public packRevivePrice;
+    // ── Prices, in US cents ───────────────────────────────────────────────
+    /// One revive, sold at the moment of the crash. 100 = $1.00.
+    uint32 public singleRevivePriceCents;
+    /// One pack of `packRevives` revives, sold in the shop. 1000 = $10.00.
+    uint32 public packRevivePriceCents;
+    /// Charged for writing a run onchain — in both modes alike. 10 = $0.10.
+    uint32 public recordPriceCents;
     uint16 public packRevives;
-    /// Charged for writing a run onchain — in both modes alike.
-    uint256 public recordPrice;
+
+    // ── Oracle ────────────────────────────────────────────────────────────
+    AggregatorV3Interface public priceFeed;
+
+    /// How old the feed's answer may be before payments stop. Chainlink's
+    /// ETH/USD feeds update on deviation *or* on a heartbeat, so this has to be
+    /// generous enough to survive a quiet market: too tight and a calm day
+    /// takes the shop offline.
+    uint256 public maxPriceAge;
 
     struct Best {
         uint128 score;
@@ -79,12 +102,13 @@ contract SnakeArcade {
     );
 
     event PricesUpdated(
-        uint256 singleRevivePrice,
-        uint256 packRevivePrice,
+        uint32 singleRevivePriceCents,
+        uint32 packRevivePriceCents,
         uint16 packRevives,
-        uint256 recordPrice
+        uint32 recordPriceCents
     );
 
+    event PriceFeedUpdated(address indexed feed, uint256 maxPriceAge);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event Withdrawn(address indexed to, uint256 amount);
 
@@ -94,9 +118,12 @@ contract SnakeArcade {
     error InvalidLevel();
     error InvalidCells();
     error InvalidPackSize();
+    error InvalidPriceAge();
     error NothingToBuy();
     error Underpaid(uint256 required);
     error TransferFailed();
+    error StalePrice(uint256 updatedAt);
+    error InvalidPrice(int256 answer);
 
     modifier onlyOwner() {
         if (msg.sender != owner) {
@@ -105,28 +132,80 @@ contract SnakeArcade {
         _;
     }
 
-    /// @param singleRevivePrice_ wei charged for one revive
-    /// @param packRevivePrice_ wei charged for one pack
+    /// @param priceFeed_ Chainlink ETH/USD aggregator. On Base mainnet that is
+    ///        0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70 (8 decimals).
+    /// @param maxPriceAge_ seconds an answer stays usable
+    /// @param singleRevivePriceCents_ cents for one revive (100 = $1)
+    /// @param packRevivePriceCents_ cents for one pack (1000 = $10)
     /// @param packRevives_ revives in a pack
-    /// @param recordPrice_ wei charged for writing a run
-    /// @dev Nothing is defaulted on purpose: the deployer states every price,
-    ///      so no run of a deploy script can quietly ship the wrong one.
+    /// @param recordPriceCents_ cents to save a run (10 = $0.10)
     constructor(
-        uint256 singleRevivePrice_,
-        uint256 packRevivePrice_,
+        address priceFeed_,
+        uint256 maxPriceAge_,
+        uint32 singleRevivePriceCents_,
+        uint32 packRevivePriceCents_,
         uint16 packRevives_,
-        uint256 recordPrice_
+        uint32 recordPriceCents_
     ) {
         owner = msg.sender;
         emit OwnershipTransferred(address(0), msg.sender);
-        _setPrices(singleRevivePrice_, packRevivePrice_, packRevives_, recordPrice_);
+
+        _setPriceFeed(priceFeed_, maxPriceAge_);
+        _setPrices(
+            singleRevivePriceCents_,
+            packRevivePriceCents_,
+            packRevives_,
+            recordPriceCents_
+        );
+    }
+
+    // ── Quotes ────────────────────────────────────────────────────────────
+
+    /// @notice The feed's current answer, rejected if stale or nonsensical.
+    function ethUsdPrice() public view returns (uint256 price, uint8 feedDecimals) {
+        (, int256 answer, , uint256 updatedAt, ) = priceFeed.latestRoundData();
+
+        if (answer <= 0) {
+            revert InvalidPrice(answer);
+        }
+
+        if (updatedAt == 0 || block.timestamp - updatedAt > maxPriceAge) {
+            revert StalePrice(updatedAt);
+        }
+
+        return (uint256(answer), priceFeed.decimals());
+    }
+
+    /// @notice What `cents` costs in wei right now.
+    function weiForCents(uint256 cents) public view returns (uint256) {
+        if (cents == 0) {
+            return 0;
+        }
+
+        (uint256 price, uint8 feedDecimals) = ethUsdPrice();
+
+        // cents / 100 dollars, divided by dollars-per-ETH, scaled to wei. The
+        // feed's own decimals cancel out of the division.
+        return (cents * 1e18 * (10 ** feedDecimals)) / (price * 100);
+    }
+
+    function quoteRecord() external view returns (uint256) {
+        return weiForCents(recordPriceCents);
+    }
+
+    function quoteSingleRevive() external view returns (uint256) {
+        return weiForCents(singleRevivePriceCents);
+    }
+
+    function quotePacks(uint16 packs) external view returns (uint256) {
+        return weiForCents(uint256(packs) * packRevivePriceCents);
     }
 
     // ── Playing ───────────────────────────────────────────────────────────
 
-    /// @notice Write a finished run. Costs `recordPrice` in either mode;
-    ///         anything paid above it is sent straight back, so a price change
-    ///         between quote and confirmation costs the player nothing.
+    /// @notice Write a finished run. Costs `recordPriceCents` in either mode;
+    ///         anything paid above the current conversion is sent straight
+    ///         back.
     /// @param mode MODE_CLASSIC or MODE_LEVELS
     /// @param level 0 for classic, 1..MAX_LEVEL for the ladder
     function recordRun(
@@ -155,7 +234,7 @@ contract SnakeArcade {
             revert InvalidCells();
         }
 
-        uint256 price = recordPrice;
+        uint256 price = weiForCents(recordPriceCents);
 
         if (msg.value < price) {
             revert Underpaid(price);
@@ -194,7 +273,7 @@ contract SnakeArcade {
 
     /// @notice The single revive offered on the death screen.
     function buySingleRevive() external payable {
-        _buy(1, singleRevivePrice);
+        _buy(1, weiForCents(singleRevivePriceCents));
     }
 
     /// @notice Packs from the shop. Any number of them.
@@ -203,12 +282,10 @@ contract SnakeArcade {
             revert NothingToBuy();
         }
 
-        _buy(uint256(packs) * uint256(packRevives), uint256(packs) * packRevivePrice);
-    }
-
-    /// @notice What `packs` packs cost right now, for the UI to quote.
-    function quotePacks(uint16 packs) external view returns (uint256) {
-        return uint256(packs) * packRevivePrice;
+        _buy(
+            uint256(packs) * uint256(packRevives),
+            weiForCents(uint256(packs) * packRevivePriceCents)
+        );
     }
 
     function _buy(uint256 amount, uint256 price) private {
@@ -231,12 +308,23 @@ contract SnakeArcade {
     // ── Owner ─────────────────────────────────────────────────────────────
 
     function setPrices(
-        uint256 singleRevivePrice_,
-        uint256 packRevivePrice_,
+        uint32 singleRevivePriceCents_,
+        uint32 packRevivePriceCents_,
         uint16 packRevives_,
-        uint256 recordPrice_
+        uint32 recordPriceCents_
     ) external onlyOwner {
-        _setPrices(singleRevivePrice_, packRevivePrice_, packRevives_, recordPrice_);
+        _setPrices(
+            singleRevivePriceCents_,
+            packRevivePriceCents_,
+            packRevives_,
+            recordPriceCents_
+        );
+    }
+
+    /// @notice Point at a different aggregator, or change how stale an answer
+    ///         may be. The new feed has to answer before it is accepted.
+    function setPriceFeed(address priceFeed_, uint256 maxPriceAge_) external onlyOwner {
+        _setPriceFeed(priceFeed_, maxPriceAge_);
     }
 
     function withdraw(address to, uint256 amount) external onlyOwner {
@@ -265,21 +353,47 @@ contract SnakeArcade {
     // ── Internals ─────────────────────────────────────────────────────────
 
     function _setPrices(
-        uint256 singleRevivePrice_,
-        uint256 packRevivePrice_,
+        uint32 singleRevivePriceCents_,
+        uint32 packRevivePriceCents_,
         uint16 packRevives_,
-        uint256 recordPrice_
+        uint32 recordPriceCents_
     ) private {
         if (packRevives_ == 0) {
             revert InvalidPackSize();
         }
 
-        singleRevivePrice = singleRevivePrice_;
-        packRevivePrice = packRevivePrice_;
+        singleRevivePriceCents = singleRevivePriceCents_;
+        packRevivePriceCents = packRevivePriceCents_;
         packRevives = packRevives_;
-        recordPrice = recordPrice_;
+        recordPriceCents = recordPriceCents_;
 
-        emit PricesUpdated(singleRevivePrice_, packRevivePrice_, packRevives_, recordPrice_);
+        emit PricesUpdated(
+            singleRevivePriceCents_,
+            packRevivePriceCents_,
+            packRevives_,
+            recordPriceCents_
+        );
+    }
+
+    function _setPriceFeed(address priceFeed_, uint256 maxPriceAge_) private {
+        if (priceFeed_ == address(0)) {
+            revert ZeroAddress();
+        }
+
+        // A day of silence is already unusual for ETH/USD; anything shorter
+        // than an hour risks taking the shop down over nothing.
+        if (maxPriceAge_ < 1 hours || maxPriceAge_ > 7 days) {
+            revert InvalidPriceAge();
+        }
+
+        priceFeed = AggregatorV3Interface(priceFeed_);
+        maxPriceAge = maxPriceAge_;
+
+        // Fail here rather than at the first player's payment: a feed that
+        // can't answer now is not one to switch to.
+        ethUsdPrice();
+
+        emit PriceFeedUpdated(priceFeed_, maxPriceAge_);
     }
 
     /// Sends back whatever was paid above the price. State is already final

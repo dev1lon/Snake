@@ -14,14 +14,22 @@ buyRevivePacks(uint16 packs) payable
 - **Modes never mix.** `mode` is 0 for classic and 1 for levels, and a classic
   run must record at `level = 0`. Bests are keyed by `(player, mode, level)`, so
   a classic score can never overwrite a level score.
-- **Saving costs the same in both modes** — `recordPrice`, charged on every
+- **Saving costs the same in both modes** — `recordPriceCents`, charged on every
   `recordRun`.
-- **Every price is a variable.** `singleRevivePrice`, `packRevivePrice`,
-  `packRevives` and `recordPrice` are set in the constructor and can be retuned
-  by the owner with `setPrices`. They are dollar decisions paid in ETH, and ETH
-  moves; nothing else about the contract can be changed.
-- **Overpayment is refunded.** A price change between quote and confirmation
-  costs the player nothing.
+- **Prices are dollars, not ether.** A revive is a dollar; that is the product
+  decision. `singleRevivePriceCents`, `packRevivePriceCents` and
+  `recordPriceCents` are held in US cents and converted at payment time through
+  the Chainlink ETH/USD feed, so a move in the market doesn't quietly reprice
+  the game. The owner can retune them with `setPrices`; nothing else about the
+  contract can be changed.
+- **Quotes are views.** `quoteRecord()`, `quoteSingleRevive()` and
+  `quotePacks(n)` return what to send in wei. The frontend adds 2% and the
+  contract refunds the difference, because a quote is a block or two old by the
+  time the transaction lands.
+- **The feed is guarded.** An answer older than `maxPriceAge`, or one that
+  isn't positive, reverts the payment rather than charging a made-up price.
+  `setPriceFeed(feed, maxAge)` can move to another aggregator, and it rejects
+  one that can't answer.
 - Revives are counted, not consumed, onchain: `revivesPurchased` only grows. The
   backend counts spends against it, because a transaction per death would cost
   more than a revive is worth.
@@ -29,37 +37,38 @@ buyRevivePacks(uint16 packs) payable
 
 ### Deploying
 
-The constructor takes every price, in wei — nothing is defaulted, so a deploy
-cannot quietly ship the wrong number:
+The constructor takes the feed, the staleness window and every price — nothing
+is defaulted, so a deploy cannot quietly ship the wrong number:
 
 ```
-constructor(uint256 singleRevivePrice, uint256 packRevivePrice, uint16 packRevives, uint256 recordPrice)
+constructor(
+  address priceFeed,
+  uint256 maxPriceAge,
+  uint32 singleRevivePriceCents,
+  uint32 packRevivePriceCents,
+  uint16 packRevives,
+  uint32 recordPriceCents
+)
 ```
 
-The prices are dollar decisions — $1 a revive, $10 for twenty, $0.10 to save a
-run — so the wei only hold while ETH does. [prices.mjs](prices.mjs) does the
-conversion, rounding to one significant figure of ETH because `0.0004 ETH` is a
-number a player can read in a wallet prompt and `0.000406834825061` is not:
-
-```bash
-node contracts/prices.mjs          # fetches the ETH price
-node contracts/prices.mjs 2460     # or takes your own rate
-```
-
-At ETH ≈ $2460 that gives:
-
-| price | target | ETH | actual | wei |
-| --- | --- | --- | --- | --- |
-| `singleRevivePrice` | $1 | 0.0004 | $0.98 | `400000000000000` |
-| `packRevivePrice` | $10 | 0.004 | $9.84 | `4000000000000000` |
-| `recordPrice` | $0.10 | 0.00004 | $0.098 | `40000000000000` |
+For Base mainnet:
 
 ```
-constructor(400000000000000, 4000000000000000, 20, 40000000000000)
+0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70, 90000, 100, 1000, 20, 10
 ```
 
-Re-run the script and call `setPrices` with its output whenever ETH has moved
-far enough to matter.
+| argument | value | meaning |
+| --- | --- | --- |
+| `priceFeed` | `0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70` | Chainlink ETH/USD on Base — verified onchain: `description()` is `ETH / USD`, `decimals()` is 8 |
+| `maxPriceAge` | `90000` | 25 hours, comfortably past a 24 hour heartbeat |
+| `singleRevivePriceCents` | `100` | $1.00 |
+| `packRevivePriceCents` | `1000` | $10.00 |
+| `packRevives` | `20` | revives per pack |
+| `recordPriceCents` | `10` | $0.10 |
+
+The dollar prices hold on their own from here: no maintenance transaction is
+needed when ETH moves. `setPrices` is for changing what something costs, not
+for tracking the market.
 
 Compile with solc 0.8.20 or newer — verified against both 0.8.20 and 0.8.26 —
 and deploy to Base mainnet. Then:

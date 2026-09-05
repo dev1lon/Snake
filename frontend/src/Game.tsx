@@ -121,6 +121,17 @@ function formatEth(value: bigint | null) {
 
   return `${eth.toFixed(eth >= 0.01 ? 3 : 6).replace(/0+$/, "").replace(/\.$/, "")} ETH`;
 }
+
+function formatUsd(cents: number | null) {
+  return cents === null ? "…" : `$${(cents / 100).toFixed(2)}`;
+}
+
+// A quote is a block or two old by the time the transaction lands, and ETH
+// moves. Sending a little over covers that; the contract refunds the rest, so
+// the player is still charged exactly the dollar price.
+function withQuoteBuffer(value: bigint) {
+  return (value * 102n) / 100n;
+}
 const STEP_MS = 236;
 const BEST_RUN_STORAGE_KEY = "snake.bestRunCells";
 const DEFAULT_RECORD_CONTRACT_ADDRESS = "0x9e5d82E6B6419C066Bc57F5a70116659c468d780" as const;
@@ -746,22 +757,29 @@ function Game() {
     }
   });
   const { switchChainAsync } = useSwitchChain();
-  // Prices live in the contract and the owner can retune them, so they are read
-  // rather than hardcoded — and re-read before every purchase quote.
+  // Prices are dollars in the contract; what to send is a quote it computes
+  // from the ETH/USD feed. So both are read: the cents for the label, the wei
+  // for the transaction. Quotes go stale as ETH moves, hence the refetch.
   const { data: arcadeConfig } = useReadContracts({
     contracts: [
-      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "recordPrice", chainId: base.id },
-      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "singleRevivePrice", chainId: base.id },
-      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "packRevivePrice", chainId: base.id },
-      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "packRevives", chainId: base.id }
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "quoteRecord", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "quoteSingleRevive", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "quotePacks", args: [1], chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "packRevives", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "recordPriceCents", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "singleRevivePriceCents", chainId: base.id },
+      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "packRevivePriceCents", chainId: base.id }
     ],
-    query: { enabled: Boolean(ARCADE_ADDRESS) }
+    query: { enabled: Boolean(ARCADE_ADDRESS), refetchInterval: 60_000 }
   });
 
   const recordPrice = (arcadeConfig?.[0]?.result as bigint | undefined) ?? null;
   const singleRevivePrice = (arcadeConfig?.[1]?.result as bigint | undefined) ?? null;
   const packRevivePrice = (arcadeConfig?.[2]?.result as bigint | undefined) ?? null;
   const packRevives = (arcadeConfig?.[3]?.result as number | undefined) ?? SANDBOX_PACK_REVIVES;
+  const recordPriceCents = (arcadeConfig?.[4]?.result as number | undefined) ?? null;
+  const singleRevivePriceCents = (arcadeConfig?.[5]?.result as number | undefined) ?? null;
+  const packRevivePriceCents = (arcadeConfig?.[6]?.result as number | undefined) ?? null;
 
   const totalCells = game.cols * game.rows;
   const targetBoard = mode === "levels" ? getLevel(levelIndex) : CLASSIC_BOARD;
@@ -1338,6 +1356,8 @@ function Game() {
       throw new Error("Could not read the save price from the contract");
     }
 
+    const value = withQuoteBuffer(recordPrice);
+
     const args = [
       mode === "levels" ? MODE_LEVELS : MODE_CLASSIC,
       mode === "levels" ? levelIndex + 1 : 0,
@@ -1353,7 +1373,7 @@ function Game() {
       return sendBatchedCall(
         ARCADE_ADDRESS,
         withBuilderSuffix(encodeFunctionData({ abi: snakeArcadeAbi, functionName: "recordRun", args })),
-        recordPrice
+        value
       );
     }
 
@@ -1362,7 +1382,7 @@ function Game() {
       abi: snakeArcadeAbi,
       functionName: "recordRun",
       args,
-      value: recordPrice,
+      value,
       chainId: base.id,
       dataSuffix: BUILDER_CODE_SUFFIX
     });
@@ -1386,7 +1406,7 @@ function Game() {
       throw new Error("Could not read the price from the contract");
     }
 
-    const value = packs === null ? price : price * BigInt(packs);
+    const value = withQuoteBuffer(packs === null ? price : price * BigInt(packs));
 
     await switchChainAsync({ chainId: base.id });
 
@@ -1837,16 +1857,23 @@ function Game() {
                         ? "Paying..."
                         : revives > 0
                           ? `Revive · ${revives} left`
-                          : `Revive · ${PAYMENTS_ARE_LIVE ? formatEth(singleRevivePrice) : "free (local)"}`}
+                          : `Revive · ${
+                              PAYMENTS_ARE_LIVE ? formatUsd(singleRevivePriceCents) : "free (local)"
+                            }`}
                     </span>
                   </button>
+                  {PAYMENTS_ARE_LIVE && revives <= 0 && (
+                    <small className="gs-end-local-note">
+                      ≈ {formatEth(singleRevivePrice)} at the current rate
+                    </small>
+                  )}
                   <button
                     className="gs-end-shop-link"
                     type="button"
                     onClick={() => setIsShopOpen(true)}
                   >
                     or stock up · {packRevives} for{" "}
-                    {PAYMENTS_ARE_LIVE ? formatEth(packRevivePrice) : "free (local)"}
+                    {PAYMENTS_ARE_LIVE ? formatUsd(packRevivePriceCents) : "free (local)"}
                   </button>
                   {purchaseStatus && <small className="gs-end-local-note">{purchaseStatus}</small>}
                   {!PAYMENTS_ARE_LIVE && revives <= 0 && (
@@ -1872,7 +1899,7 @@ function Game() {
                     ? "Saving..."
                     : recordSaved
                       ? "Saved"
-                      : `Save Record${PAYMENTS_ARE_LIVE ? ` · ${formatEth(recordPrice)}` : ""}`}
+                      : `Save Record${PAYMENTS_ARE_LIVE ? ` · ${formatUsd(recordPriceCents)}` : ""}`}
                 </span>
               </button>
               <button className="gs-end-play" type="button" onClick={playAgain}>
@@ -1917,13 +1944,19 @@ function Game() {
                 <strong>{packRevives * packQuantity} revives</strong>
                 <em>
                   {PAYMENTS_ARE_LIVE
-                    ? formatEth(packRevivePrice === null ? null : packRevivePrice * BigInt(packQuantity))
+                    ? formatUsd(
+                        packRevivePriceCents === null ? null : packRevivePriceCents * packQuantity
+                      )
                     : "free"}
                 </em>
               </span>
               <small>
                 {packQuantity} pack{packQuantity > 1 ? "s" : ""} × {packRevives} revives
-                {PAYMENTS_ARE_LIVE ? ` · ${formatEth(packRevivePrice)} each` : " · local sandbox"}
+                {PAYMENTS_ARE_LIVE
+                  ? ` · ≈ ${formatEth(
+                      packRevivePrice === null ? null : packRevivePrice * BigInt(packQuantity)
+                    )}`
+                  : " · local sandbox"}
               </small>
 
               <div className="gs-shop-stepper">
@@ -1955,8 +1988,10 @@ function Game() {
                   ? "Paying..."
                   : `Buy · ${
                       PAYMENTS_ARE_LIVE
-                        ? formatEth(
-                            packRevivePrice === null ? null : packRevivePrice * BigInt(packQuantity)
+                        ? formatUsd(
+                            packRevivePriceCents === null
+                              ? null
+                              : packRevivePriceCents * packQuantity
                           )
                         : "free"
                     }`}

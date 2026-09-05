@@ -47,14 +47,16 @@ Crashing offers a revive: the run resumes where it died, with the same score and
 move count, and with real space to move — if the head is walled in the snake
 turns around, and it gives up length only when even that isn't enough.
 
-Both revives and saving are paid, in ETH, through
+Both revives and saving are paid through
 [SnakeArcade](contracts/SnakeArcade.sol):
 
-- one revive, sold only at the crash;
-- packs of revives, sold in the shop, any number of packs at a time;
-- saving a run, charged the same in classic and in levels.
+- one revive, $1, sold only at the crash;
+- packs of twenty, $10, sold in the shop, any number of packs at a time;
+- saving a run, $0.10, charged the same in classic and in levels.
 
-Every price is a variable the contract owner can retune — see
+The prices are held in cents and converted to ETH at payment time through the
+Chainlink ETH/USD feed, so a dollar stays a dollar as the market moves. The
+frontend sends 2% over the quote and the contract refunds the difference. See
 [contracts/README.md](contracts/README.md).
 
 Revives are counted onchain (`revivesPurchased` only grows) and spent through
