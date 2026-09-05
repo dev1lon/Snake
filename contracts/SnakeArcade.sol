@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+// 0.8.20 and up: nothing here needs anything newer, and it keeps an editor's
+// bundled compiler happy. Base has supported PUSH0 since Canyon, so the
+// shanghai target this compiles to by default is fine.
+pragma solidity ^0.8.20;
 
 /// @title SnakeArcade
 /// @notice Records Base Snake runs and sells revives. Replaces SnakeRecords,

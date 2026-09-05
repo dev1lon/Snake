@@ -61,8 +61,8 @@ constructor(400000000000000, 4000000000000000, 20, 40000000000000)
 Re-run the script and call `setPrices` with its output whenever ETH has moved
 far enough to matter.
 
-Compile with solc 0.8.24 or newer (verified against 0.8.26) and deploy to Base
-mainnet. Then:
+Compile with solc 0.8.20 or newer — verified against both 0.8.20 and 0.8.26 —
+and deploy to Base mainnet. Then:
 
 ```bash
 # frontend
