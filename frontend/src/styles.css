@@ -175,40 +175,6 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
   text-align: center;
 }
 
-.gs-pill-level {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: #00E5FF;
-  border-color: rgba(0, 229, 255, 0.28);
-}
-
-.gs-pill-level small {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  color: #8A95A5;
-}
-
-/* Revive balance doubles as the way into the shop. */
-.gs-revive-pill {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 10px;
-  border: 1px solid rgba(255, 59, 48, 0.36);
-  border-radius: 8px;
-  background: rgba(255, 59, 48, 0.1);
-  color: #ff6b60;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
-  font-weight: 700;
-  transition: background 0.2s;
-}
-
-.gs-revive-pill strong { color: #fff; }
-.gs-revive-pill:hover { background: rgba(255, 59, 48, 0.18); }
-.gs-revive-pill:active { transform: scale(0.97); }
-
 .gs-checkin-btn {
   background: rgba(0, 82, 255, 0.1);
   border: 1px solid rgba(0, 82, 255, 0.4);
@@ -334,17 +300,11 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 
 .gs-board-panel {
   position: relative;
-  /* fills available height first, width follows via aspect-ratio. The ratio is
-     set per board: level mode alternates between square and 2:1 grids. */
-  --gs-board-aspect: 1;
+  /* fills available height first, width follows via aspect-ratio */
   height: 100%;
-  max-height: min(
-    470px,
-    calc((100vw - var(--gs-edge) - var(--gs-edge)) / var(--gs-board-aspect)),
-    100%
-  );
+  max-height: min(470px, calc(100vw - var(--gs-edge) - var(--gs-edge)), 100%);
   width: auto;
-  aspect-ratio: var(--gs-board-aspect);
+  aspect-ratio: 1;
   background:
     radial-gradient(circle at 20% 0%, rgba(0,82,255,0.16), transparent 42%),
     radial-gradient(circle at 100% 90%, rgba(0,229,255,0.09), transparent 40%),
@@ -770,9 +730,7 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
 }
 
 .gs-end-save,
-.gs-end-play,
-.gs-end-revive,
-.gs-end-next {
+.gs-end-play {
   width: 100%;
   min-height: clamp(58px, 8.6dvh, 74px);
   border-radius: 18px;
@@ -830,170 +788,9 @@ button { font: inherit; user-select: none; -webkit-tap-highlight-color: transpar
     inset 0 1px 1px rgba(255,255,255,0.08);
 }
 
-/* Revive is the loudest button on the death screen — it's the one action that
-   saves the run. */
-.gs-end-revive {
-  background: linear-gradient(180deg, #ff5247 0%, #c62a20 100%);
-  border: 1px solid rgba(255, 150, 140, 0.5);
-  box-shadow:
-    0 0 26px rgba(255, 59, 48, 0.34),
-    inset 0 1px 1px rgba(255, 255, 255, 0.24);
-}
-
-.gs-end-next {
-  background: linear-gradient(180deg, #00b3cc 0%, #006e88 100%);
-  border: 1px solid rgba(0, 229, 255, 0.5);
-  box-shadow:
-    0 0 26px rgba(0, 229, 255, 0.26),
-    inset 0 1px 1px rgba(255, 255, 255, 0.2);
-}
-
 .gs-end-save:active,
-.gs-end-play:active,
-.gs-end-revive:active,
-.gs-end-next:active {
+.gs-end-play:active {
   transform: scale(0.97);
-}
-
-.gs-end-revive svg,
-.gs-end-next svg {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-}
-
-/* ── Revive shop ────────────────────────────────────────────── */
-.gs-shop {
-  position: fixed;
-  inset: 0;
-  z-index: 70;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 22px;
-  background: rgba(2, 4, 10, 0.78);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  animation: gs-end-fade 0.2s ease-out both;
-}
-
-.gs-shop-card {
-  position: relative;
-  width: min(100%, 400px);
-  padding: 26px 22px 22px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  background: linear-gradient(145deg, rgba(18, 25, 45, 0.96), rgba(6, 9, 18, 0.98));
-  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.95);
-}
-
-.gs-shop-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #8A95A5;
-}
-
-.gs-shop-close:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
-
-.gs-shop-card h3 {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.gs-shop-lead {
-  margin-top: 6px;
-  font-size: 0.86rem;
-  line-height: 1.45;
-  color: #8A95A5;
-}
-
-.gs-shop-balance {
-  margin-top: 16px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 12px;
-  border: 1px solid rgba(255, 59, 48, 0.34);
-  border-radius: 999px;
-  background: rgba(255, 59, 48, 0.1);
-  color: #ff6b60;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.gs-shop-balance strong { color: #fff; }
-.gs-shop-balance span { color: #8A95A5; text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.65rem; }
-
-.gs-shop-packs {
-  margin-top: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.gs-shop-pack {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 15px 16px;
-  border: 1px solid rgba(0, 229, 255, 0.28);
-  border-radius: 14px;
-  background: rgba(0, 82, 255, 0.1);
-  text-align: left;
-  transition: background 0.15s, transform 0.1s;
-}
-
-.gs-shop-pack:hover { background: rgba(0, 82, 255, 0.18); }
-.gs-shop-pack:active { transform: scale(0.985); }
-
-.gs-shop-pack-top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.gs-shop-pack-top strong {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 1.02rem;
-  font-weight: 700;
-  color: #fff;
-}
-
-.gs-shop-pack-top em {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.95rem;
-  font-weight: 700;
-  font-style: normal;
-  color: #00E5FF;
-}
-
-.gs-shop-pack small {
-  font-size: 0.76rem;
-  line-height: 1.35;
-  color: #8A95A5;
-}
-
-.gs-shop-note {
-  margin-top: 16px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.66rem;
-  line-height: 1.5;
-  letter-spacing: 0.04em;
-  color: #5C6A7D;
-  text-align: center;
 }
 
 .gs-end-save:disabled {

@@ -1,8 +1,7 @@
 /* ── Root ───────────────────────────────────────────────────── */
 .lnd-root {
   --lnd-host-controls-clearance: max(86px, env(safe-area-inset-bottom, 0px));
-  /* Two CTAs now: classic and the level ladder. */
-  --lnd-cta-space: calc(212px + var(--lnd-host-controls-clearance));
+  --lnd-cta-space: calc(146px + var(--lnd-host-controls-clearance));
   height: 100vh;
   height: 100svh;
   min-height: 100vh;
@@ -368,7 +367,6 @@
   bottom: var(--lnd-host-controls-clearance);
   display: flex;
   flex-direction: column;
-  gap: 10px;
   padding: 12px 0 8px;
   background: linear-gradient(to top, #02040a 45%, rgba(2,4,10,0.82) 75%, transparent);
   z-index: 20;
@@ -407,37 +405,6 @@
 
 .lnd-btn-play:hover  { opacity: 0.92; }
 .lnd-btn-play:active { transform: scale(0.98); }
-
-/* Secondary CTA: the level ladder, with the level you'd resume at. */
-.lnd-btn-levels {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: clamp(12px, 3.4vw, 15px) 24px;
-  border: 1px solid rgba(0, 229, 255, 0.4);
-  border-radius: 14px;
-  background: rgba(0, 229, 255, 0.08);
-  color: #00E5FF;
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: clamp(0.88rem, 3vw, 1rem);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  transition: background 0.15s, transform 0.1s;
-}
-
-.lnd-btn-levels small {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: #8A95A5;
-}
-
-.lnd-btn-levels:hover  { background: rgba(0, 229, 255, 0.14); }
-.lnd-btn-levels:active { transform: scale(0.98); }
 
 /* Lightweight effects keep the design but avoid expensive mobile compositing. */
 .lnd-root.is-lite .lnd-grid {

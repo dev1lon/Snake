@@ -58,11 +58,3 @@ services:
       # Domain-restricted RPC key. Falls back to the public Base endpoint.
       - key: VITE_RPC_URL
         sync: false
-      # The "open in Base App" gate is off unless VITE_REQUIRE_BASE_APP is
-      # "true"; set the link first, or the screen has nowhere to send anyone.
-      - key: VITE_REQUIRE_BASE_APP
-        sync: false
-      - key: VITE_BASE_APP_LINK
-        sync: false
-      - key: VITE_BASE_APP_LABEL
-        sync: false
