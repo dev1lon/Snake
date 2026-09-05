@@ -5,8 +5,6 @@ import { useEffect, useState } from "react";
 // it can be opened, edited and reviewed on its own.
 export const GATE_PAGE_PATH = "/gate.html";
 
-const SKIP_KEY = "snake.skipBaseAppGate";
-
 // Detection is a set of heuristics, not a guarantee: there is no single flag
 // that says "you are inside Base App". Everything here errs towards letting the
 // player in — the gate is a signpost for people who opened the URL in Safari,
@@ -37,37 +35,18 @@ function detectBaseApp() {
   return false;
 }
 
-function hasSkipFlag() {
-  try {
-    if (new URLSearchParams(window.location.search).get("web") === "1") {
-      window.localStorage.setItem(SKIP_KEY, "1");
-      return true;
-    }
-
-    return window.localStorage.getItem(SKIP_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 export function shouldShowBaseAppGate() {
-  // ?gate=1 previews the screen anywhere, including while the gate is off.
+  // ?gate=1 previews the screen anywhere, including local development.
   try {
     if (new URLSearchParams(window.location.search).get("gate") === "1") {
       return true;
     }
   } catch {
-    // No location to read (SSR, sandboxed frame): fall through to the flag.
+    // No location to read: fall through to environment detection.
   }
 
-  // Off unless the build asks for it. Production keeps serving the open web app
-  // the way it always did; flip VITE_REQUIRE_BASE_APP to "true" to close it.
-  if (import.meta.env.VITE_REQUIRE_BASE_APP !== "true" || import.meta.env.DEV) {
-    return false;
-  }
-
-  // ?web=1 lets a single browser through a gate that is otherwise on.
-  if (hasSkipFlag()) {
+  // Production opens the game in Base App. Local development stays accessible.
+  if (import.meta.env.DEV) {
     return false;
   }
 
@@ -75,17 +54,21 @@ export function shouldShowBaseAppGate() {
 }
 
 export function useBaseAppGate() {
-  const [showGate, setShowGate] = useState(shouldShowBaseAppGate);
+  const [showGate, setShowGate] = useState<boolean | null>(() =>
+    shouldShowBaseAppGate() ? null : false
+  );
 
   // The wallet provider can be injected a tick after first paint, which would
   // otherwise leave a Base App player staring at the gate.
   useEffect(() => {
-    if (!showGate) {
+    if (showGate !== null) {
       return;
     }
 
-    const recheck = () => setShowGate(shouldShowBaseAppGate());
-    const timer = window.setTimeout(recheck, 600);
+    const recheck = () => {
+      if (!shouldShowBaseAppGate()) setShowGate(false);
+    };
+    const timer = window.setTimeout(() => setShowGate(shouldShowBaseAppGate()), 600);
 
     window.addEventListener("ethereum#initialized", recheck);
 

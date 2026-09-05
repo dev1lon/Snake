@@ -71,7 +71,3 @@ services:
       # Domain-restricted RPC key. Falls back to the public Base endpoint.
       - key: VITE_RPC_URL
         sync: false
-      # Sends non-Base-App browsers to /gate.html. Off unless set to "true";
-      # the gate links to Base App and displays the game address.
-      - key: VITE_REQUIRE_BASE_APP
-        sync: false

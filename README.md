@@ -106,14 +106,14 @@ Revive consumption is serialized per player in Postgres and accepts an
 
 The app is built for the Base App webview, and [gate.html](frontend/public/gate.html)
 is a standalone page linking to Base App. It uses plain HTML and CSS, with no
-build step or scripts. Its button opens `https://base.app`; the game's address
-is shown below it.
+build step or scripts. Its button opens
+`https://base.app/app/https://base-snake.app/`; the game's address is shown below it.
 
-**The redirect is off.** Production serves the open web app; browsers are only
-sent to `/gate.html` when `VITE_REQUIRE_BASE_APP=true`. The page itself is always reachable at
-`/gate.html`, and `?gate=1` on any route jumps to it. With the redirect on,
-detection is heuristic and deliberately permissive, `?web=1` walks through it,
-and dev servers never gate.
+Production sends browsers outside Base App to `/gate.html`. Detection allows
+600 ms for a late wallet provider to appear before redirecting. It remains
+heuristic and is not a security boundary. The old `?web=1` and local storage
+bypasses no longer apply. Local development stays open; `?gate=1` previews the
+gate in any environment, and `/gate.html` is always directly accessible.
 
 ## Security posture
 

@@ -13,8 +13,8 @@ export default function App() {
   const showBaseAppGate = useBaseAppGate();
 
   useEffect(() => {
-    void reconnect(wagmiConfig);
-  }, []);
+    if (showBaseAppGate === false) void reconnect(wagmiConfig);
+  }, [showBaseAppGate]);
 
   // Outside Base App the wallet, sponsorship and notifications all dead-end, so
   // the browser is sent to the gate page rather than into a half-working game.
@@ -25,7 +25,7 @@ export default function App() {
     }
   }, [showBaseAppGate]);
 
-  if (showBaseAppGate) {
+  if (showBaseAppGate !== false) {
     return null;
   }
 
