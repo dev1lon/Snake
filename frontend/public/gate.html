@@ -285,16 +285,18 @@
         animation: pulse 1.7s ease-in-out infinite;
       }
 
+      /* Depth only — a coloured halo around a rounded button reads as a smeared
+         rectangle behind it, so the pulse is carried by the movement alone. */
       @keyframes pulse {
         0%,
         100% {
           transform: translateY(0) scale(1);
-          box-shadow: 0 10px 26px -12px rgba(0, 82, 255, 0.9),
+          box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.85),
             inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.1);
         }
         50% {
           transform: translateY(-1px) scale(1.035);
-          box-shadow: 0 18px 40px -14px rgba(0, 82, 255, 1), 0 0 34px rgba(0, 229, 255, 0.35),
+          box-shadow: 0 12px 26px -14px rgba(0, 0, 0, 0.9),
             inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.1);
         }
       }
