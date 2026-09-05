@@ -26,7 +26,7 @@ export default function Landing() {
         {/* Scrollable content */}
         <main className="lnd-main">
           <h1 className="lnd-h1">
-            SLITHER.<br />EARN.
+            SLITHER.<br />SURVIVE.
           </h1>
           <p className="lnd-subtitle">
             The classic game, engineered for the Base network. Eat protocol tokens, grow your
