@@ -453,8 +453,10 @@ async function ensureSessionStore() {
 
   await pool.query("CREATE INDEX IF NOT EXISTS revive_usage_address_idx ON revive_usage (address)");
 
-  // Superseded by `runs`: it only ever stored an address and was never read.
-  await pool.query("DROP TABLE IF EXISTS recorded_runs");
+  // `recorded_runs` is superseded by `runs` and nothing writes to it any more.
+  // It is left alone rather than dropped: it holds one row per player who ever
+  // saved a run, and throwing that away on a deploy is not this function's call
+  // to make. Drop it by hand once you've decided you don't want the history.
 }
 
 async function getSession(token: string): Promise<Session | undefined> {
