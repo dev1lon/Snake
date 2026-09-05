@@ -522,6 +522,25 @@ function isSponsorshipError(caught: unknown) {
   return message.includes("paymaster") || message.includes("sponsor");
 }
 
+function purchaseErrorMessage(caught: unknown) {
+  const message = caught instanceof Error ? caught.message : "";
+  const normalized = message.toLowerCase();
+
+  // Wallets use several wordings and error code 4001 for the same action.
+  // Keep that implementation detail out of the game screen.
+  if (
+    normalized.includes("rejected") ||
+    normalized.includes("denied") ||
+    normalized.includes("cancelled") ||
+    normalized.includes("canceled") ||
+    normalized.includes("4001")
+  ) {
+    return "Transaction cancelled.";
+  }
+
+  return message || "Purchase failed";
+}
+
 type WalletCapabilities = {
   atomic?: {
     status?: string;
@@ -800,16 +819,14 @@ function Game() {
     }
   });
   const { switchChainAsync } = useSwitchChain();
-  // Prices are dollars in the contract; what to send is a quote it computes
-  // from the ETH/USD feed. So both are read: the cents for the label, the wei
-  // for the transaction. Quotes go stale as ETH moves, hence the refetch.
+  // Prices are dollars in the contract; transactions use a quote it computes
+  // from the ETH/USD feed. Quotes go stale as ETH moves, hence the refetch.
   const { data: arcadeConfig } = useReadContracts({
     contracts: [
       { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "quoteRecord", chainId: base.id },
       { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "quoteSingleRevive", chainId: base.id },
       { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "quotePacks", args: [1], chainId: base.id },
       { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "packRevives", chainId: base.id },
-      { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "singleRevivePriceCents", chainId: base.id },
       { address: ARCADE_ADDRESS ?? undefined, abi: snakeArcadeAbi, functionName: "packRevivePriceCents", chainId: base.id }
     ],
     query: { enabled: Boolean(ARCADE_ADDRESS), refetchInterval: 60_000 }
@@ -819,8 +836,7 @@ function Game() {
   const singleRevivePrice = (arcadeConfig?.[1]?.result as bigint | undefined) ?? null;
   const packRevivePrice = (arcadeConfig?.[2]?.result as bigint | undefined) ?? null;
   const packRevives = (arcadeConfig?.[3]?.result as number | undefined) ?? DEFAULT_PACK_REVIVES;
-  const singleRevivePriceCents = (arcadeConfig?.[4]?.result as number | undefined) ?? null;
-  const packRevivePriceCents = (arcadeConfig?.[5]?.result as number | undefined) ?? null;
+  const packRevivePriceCents = (arcadeConfig?.[4]?.result as number | undefined) ?? null;
 
   const totalCells = game.cols * game.rows;
   const targetBoard = mode === "levels" ? getLevel(levelIndex) : CLASSIC_BOARD;
@@ -1266,7 +1282,7 @@ function Game() {
       setPurchaseStatus(null);
       dispatch({ type: "revive" });
     } catch (caught) {
-      setPurchaseStatus(caught instanceof Error ? caught.message : "Purchase failed");
+      setPurchaseStatus(purchaseErrorMessage(caught));
     } finally {
       if (isMountedRef.current) {
         setIsBuying(false);
@@ -1310,7 +1326,7 @@ function Game() {
         dispatch({ type: "revive" });
       }
     } catch (caught) {
-      setPurchaseStatus(caught instanceof Error ? caught.message : "Purchase failed");
+      setPurchaseStatus(purchaseErrorMessage(caught));
     } finally {
       if (isMountedRef.current) {
         setIsBuying(false);
@@ -1896,16 +1912,9 @@ function Game() {
                         ? "Paying..."
                         : revives > 0
                           ? `Revive · ${revives} left`
-                          : `Revive · ${
-                              PAYMENTS_ARE_LIVE ? formatUsd(singleRevivePriceCents) : "unavailable"
-                            }`}
+                          : "Revive"}
                     </span>
                   </button>
-                  {PAYMENTS_ARE_LIVE && revives <= 0 && (
-                    <small className="gs-end-local-note">
-                      ≈ {formatEth(singleRevivePrice)} at the current rate
-                    </small>
-                  )}
                   <button
                     className="gs-end-shop-link"
                     type="button"
