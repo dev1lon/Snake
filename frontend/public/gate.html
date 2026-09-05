@@ -21,8 +21,6 @@
         --panel-bottom: rgba(9, 14, 26, 0.96);
         --accent: #0052ff;
         --accent-bright: #00e5ff;
-        --arc: rgba(0, 229, 255, 0.16);
-        --grid: rgba(255, 255, 255, 0.028);
         --border: rgba(255, 255, 255, 0.1);
         --corner: rgba(0, 229, 255, 0.35);
         --text: #ffffff;
@@ -75,36 +73,7 @@
         border-radius: 26px;
         box-shadow: 0 40px 90px -50px rgba(0, 0, 0, 0.95), 0 0 60px -30px rgba(0, 82, 255, 0.55);
         overflow: hidden;
-        /* Arcs first, then the millimetre grid, then the panel itself. */
-        background:
-          radial-gradient(
-            ellipse 200% 100% at 0% 30%,
-            transparent 60%,
-            var(--arc) 61%,
-            transparent 62%
-          ),
-          radial-gradient(
-            ellipse 200% 100% at 100% 70%,
-            transparent 60%,
-            var(--arc) 61%,
-            transparent 62%
-          ),
-          repeating-linear-gradient(
-            0deg,
-            var(--grid) 0,
-            var(--grid) 1px,
-            transparent 1px,
-            transparent 20px
-          ),
-          repeating-linear-gradient(
-            90deg,
-            var(--grid) 0,
-            var(--grid) 1px,
-            transparent 1px,
-            transparent 20px
-          ),
-          linear-gradient(180deg, var(--panel-top) 0%, var(--panel-bottom) 100%);
-        background-size: 100% 100%, 100% 100%, 20px 20px, 20px 20px, 100% 100%;
+        background: linear-gradient(180deg, var(--panel-top) 0%, var(--panel-bottom) 100%);
       }
 
       /* L-shaped corner brackets */
