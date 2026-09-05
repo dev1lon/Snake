@@ -55,9 +55,12 @@ const nonces = new Map<string, number>();
 const sessions = new Map<string, Session>();
 const streaks = new Map<string, StreakRecord>();
 // The arcade contract is where a run becomes real: a score only reaches the
-// database if a transaction to this address recorded it. Without the address
-// configured the run endpoints answer 503 rather than trusting the client.
-const arcadeAddress = (process.env.ARCADE_CONTRACT_ADDRESS ?? "").trim().toLowerCase();
+// database if a transaction to this address recorded it. Without an address the
+// run endpoints answer 503 rather than trusting the client.
+const defaultArcadeAddress = "0xd3a355586a035bAA80eA56d6D8627b0F64141D78";
+const arcadeAddress = (process.env.ARCADE_CONTRACT_ADDRESS ?? defaultArcadeAddress)
+  .trim()
+  .toLowerCase();
 
 type GameMode = "classic" | "levels";
 

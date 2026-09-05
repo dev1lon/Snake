@@ -138,7 +138,10 @@ function getAddressEnv(value: string | undefined): Address | null {
   return value && /^0x[a-fA-F0-9]{40}$/.test(value.trim()) ? (value.trim() as Address) : null;
 }
 
-// Unset until the arcade contract is deployed. Everything that costs money
-// checks this first and falls back to a local sandbox, so the game stays
-// playable in the meantime.
-export const ARCADE_ADDRESS = getAddressEnv(import.meta.env.VITE_ARCADE_CONTRACT_ADDRESS);
+// Deployed on Base mainnet. Overridable for a test deployment; when neither is
+// a valid address, everything that costs money falls back to a local sandbox.
+const DEFAULT_ARCADE_ADDRESS = "0xd3a355586a035bAA80eA56d6D8627b0F64141D78" as const;
+
+export const ARCADE_ADDRESS =
+  getAddressEnv(import.meta.env.VITE_ARCADE_CONTRACT_ADDRESS) ??
+  getAddressEnv(DEFAULT_ARCADE_ADDRESS);

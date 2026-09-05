@@ -2,6 +2,8 @@
 
 ## SnakeArcade (current)
 
+Deployed on Base mainnet at `0xd3a355586a035bAA80eA56d6D8627b0F64141D78`.
+
 `SnakeArcade.sol` records runs and sells revives. It replaces `SnakeRecords`,
 which had no game mode, no level, and no way to charge for anything.
 
