@@ -156,8 +156,50 @@ async function copyTable(table) {
   );
 }
 
+// Rows read from the source across all tables — zero means the wrong database.
+let copied = 0;
+
+// "Not in the source" is almost always the wrong database rather than an empty
+// one, so when nothing is found, describe what was actually opened: which
+// database, as whom, and every table in it — in any schema, not just public.
+async function explainEmptySource() {
+  const [{ rows: who }, { rows: tables }] = await Promise.all([
+    source.query(
+      "SELECT current_database() AS db, current_user AS who, current_schemas(true)::text AS schemas"
+    ),
+    source.query(
+      `SELECT table_schema, table_name
+         FROM information_schema.tables
+        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+        ORDER BY table_schema, table_name`
+    )
+  ]);
+
+  console.log("\nNothing was copied. What the source connection actually sees:");
+  console.log(`  database ${who[0].db}, user ${who[0].who}, search path ${who[0].schemas}`);
+
+  if (tables.length === 0) {
+    console.log("  tables   none — this database has never held the game's data");
+    console.log(
+      "\nThe game's tables are somewhere else. Check that the service and the\n" +
+        "database are the pair the app was actually running with."
+    );
+    return;
+  }
+
+  console.log(
+    `  tables   ${tables.map((row) => `${row.table_schema}.${row.table_name}`).join(", ")}`
+  );
+  console.log(
+    "\nIf the game's tables sit under a schema other than public, say which one\n" +
+      "and the copy can read from there."
+  );
+}
+
 try {
-  console.log("Copying game data. The source is only ever read.\n");
+  console.log(`source  ${describe(sourceUrl)}`);
+  console.log(`target  ${describe(targetUrl)}`);
+  console.log("\nCopying game data. The source is only ever read.\n");
 
   for (const table of TABLES) {
     try {
@@ -171,10 +213,14 @@ try {
     }
   }
 
-  console.log(
-    "\nDone. Sessions are deliberately not copied: players sign in again, " +
-      "which costs them one wallet signature and nothing else."
-  );
+  if (copied === 0) {
+    await explainEmptySource();
+  } else {
+    console.log(
+      "\nDone. Sessions are deliberately not copied: players sign in again, " +
+        "which costs them one wallet signature and nothing else."
+    );
+  }
 } catch (error) {
   console.error("\nCopy failed:", error.message);
   process.exitCode = 1;
