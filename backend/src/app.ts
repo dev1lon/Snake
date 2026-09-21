@@ -848,7 +848,10 @@ const readLimiter = limitByIp("read", 600, 5 * 60 * 1000);
 const writeLimiter = limitByIp("write", 300, 60 * 60 * 1000);
 const notifyLimiter = limitByIp("notify", 20, 60 * 60 * 1000);
 
-app.get("/health", (_req, res) => {
+// Both paths, because only one of them is reachable on each host: Render
+// health-checks /health, while on Vercel only /api/* reaches the function at
+// all — everything else is the static site.
+app.get(["/health", "/api/health"], (_req, res) => {
   res.json({ ok: true });
 });
 
