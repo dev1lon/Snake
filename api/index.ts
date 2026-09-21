@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { app, cleanupExpiredSessions, ensureSessionStore } from "../backend/src/app.js";
+import { app, ensureSessionStore, sweepExpired } from "../backend/src/app.js";
 
 // Vercel entry point. The same Express app that Render runs, wrapped in a
 // function — see backend/src/app.ts. server.ts is still the Render entry, so
@@ -33,9 +33,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  // A function has nowhere to keep a timer, so the session sweep arrives as a
-  // scheduled request instead (see vercel.json). Vercel signs it with
-  // CRON_SECRET; nothing else may trigger it.
+  // A function has nowhere to keep a timer, so the sweep of expired sessions
+  // and spent nonces arrives as a scheduled request instead (see vercel.json).
+  // Vercel signs it with CRON_SECRET; nothing else may trigger it.
   if (req.url?.startsWith("/api/cron/cleanup")) {
     const secret = process.env.CRON_SECRET;
 
@@ -45,7 +45,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
-    await cleanupExpiredSessions();
+    await sweepExpired();
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ ok: true }));

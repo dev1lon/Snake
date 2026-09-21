@@ -1505,7 +1505,16 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   res.status(500).json({ error: "Internal error." });
 });
 
+// Both stores age out, and in Postgres neither does so on its own: issuing a
+// nonce no longer sweeps the table the way the in-memory map did. One call
+// covers both, and both entry points schedule it — a timer on Render, a daily
+// cron request on Vercel.
+async function sweepExpired() {
+  await cleanupExpiredSessions();
+  await cleanupNonces();
+}
+
 // Shared by both entry points: server.ts listens (Render), api/index.ts wraps
 // this same app in a serverless function (Vercel). Nothing here starts a
 // listener or a timer — a function instance has no say over either.
-export { app, cleanupExpiredSessions, databaseUrl, ensureSessionStore, pool, rpcUrl };
+export { app, databaseUrl, ensureSessionStore, pool, rpcUrl, sweepExpired };

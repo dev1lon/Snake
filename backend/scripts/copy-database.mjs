@@ -70,6 +70,19 @@ const TABLES = [
   }
 ];
 
+// Which database is which, without printing the password. "Not in the source"
+// is almost always the wrong URL rather than an empty database, so say out loud
+// what is being read from and written to.
+function describe(url) {
+  try {
+    const parsed = new URL(url);
+
+    return `${parsed.hostname}${parsed.pathname}`;
+  } catch {
+    return "unparseable URL";
+  }
+}
+
 const ssl = { rejectUnauthorized: false };
 const source = new Pool({ connectionString: sourceUrl, ssl });
 const target = new Pool({ connectionString: targetUrl, ssl });
@@ -137,6 +150,7 @@ async function copyTable(table) {
   }
 
   const added = after.rows[0].count - before.rows[0].count;
+  copied += rows.length;
   console.log(
     `- ${table.name}: ${rows.length} in source, ${added} new here (${after.rows[0].count} total) — ${table.why}`
   );

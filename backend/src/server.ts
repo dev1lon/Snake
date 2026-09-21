@@ -1,4 +1,4 @@
-import { app, cleanupExpiredSessions, databaseUrl, ensureSessionStore, pool, rpcUrl } from "./app.js";
+import { app, databaseUrl, ensureSessionStore, pool, rpcUrl, sweepExpired } from "./app.js";
 
 const port = Number(process.env.PORT ?? 4000);
 
@@ -14,8 +14,8 @@ process.on("uncaughtException", (error) => {
 
 const sessionCleanupIntervalMs = 6 * 60 * 60 * 1000;
 setInterval(() => {
-  void cleanupExpiredSessions().catch((error) => {
-    console.error("Session cleanup failed", error);
+  void sweepExpired().catch((error) => {
+    console.error("Expiry sweep failed", error);
   });
 }, sessionCleanupIntervalMs).unref();
 
