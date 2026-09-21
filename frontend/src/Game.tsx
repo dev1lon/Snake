@@ -140,9 +140,6 @@ const DEFAULT_BUILDER_CODE_SUFFIX =
   "0x62635f38776576327439680b0080218021802180218021802180218021" as const;
 const RECORD_CONTRACT_ADDRESS =
   getAddressEnv(import.meta.env.VITE_RECORD_CONTRACT_ADDRESS) ?? DEFAULT_RECORD_CONTRACT_ADDRESS;
-// Paymaster runs through our backend proxy so the CDP API key stays
-// server-side. Backend env var is CDP_PAYMASTER_URL (or PAYMASTER_URL).
-const PAYMASTER_URL = `${API_URL}/api/paymaster`;
 const BUILDER_CODE_SUFFIX =
   getHexEnv(import.meta.env.VITE_BUILDER_CODE_SUFFIX) ?? DEFAULT_BUILDER_CODE_SUFFIX;
 
@@ -429,7 +426,6 @@ function getHexEnv(value: string | undefined): Hex | null {
 
 // dataSuffix is NOT a standard EIP-5792 capability — wallets ignore it.
 // For sendCalls we append BUILDER_CODE_SUFFIX manually to call data.
-const TRANSACTION_CAPABILITIES = { paymasterService: { url: PAYMASTER_URL } };
 
 async function requireWalletSession(address: string) {
   const response = await fetch(`${API_URL}/api/auth/me`, {
@@ -503,23 +499,6 @@ async function persistRun(txHash: string) {
   }
 
   return false;
-}
-
-// Sponsorship is best-effort: if the paymaster is unconfigured or out of
-// budget, fall back to a self-paid transaction instead of dead-ending. A
-// wallet rejection is the user's decision and must not be retried.
-function isSponsorshipError(caught: unknown) {
-  if (!(caught instanceof Error)) {
-    return false;
-  }
-
-  const message = caught.message.toLowerCase();
-
-  if (message.includes("rejected") || message.includes("denied") || message.includes("cancel")) {
-    return false;
-  }
-
-  return message.includes("paymaster") || message.includes("sponsor");
 }
 
 function purchaseErrorMessage(caught: unknown) {
@@ -1352,27 +1331,12 @@ function Game() {
     releaseFocus();
   };
 
+  // Self-paid: gas sponsorship was dropped with the paymaster proxy. Players
+  // already pay the price of a save or a revive, and gas on Base is cents.
   const sendBatchedCall = async (to: Address, data: Hex, value = 0n): Promise<SentTransaction> => {
-    const calls = [{ data, to, value }];
+    const result = await sendCallsAsync({ calls: [{ data, to, value }], chainId: base.id });
 
-    try {
-      const result = await sendCallsAsync({
-        calls,
-        capabilities: TRANSACTION_CAPABILITIES,
-        chainId: base.id
-      });
-
-      return { kind: "calls", reference: result.id };
-    } catch (caught) {
-      if (!isSponsorshipError(caught)) {
-        throw caught;
-      }
-
-      console.warn("Sponsorship unavailable, sending self-paid call", caught);
-      const result = await sendCallsAsync({ calls, chainId: base.id });
-
-      return { kind: "calls", reference: result.id };
-    }
+    return { kind: "calls", reference: result.id };
   };
 
   const sendCheckInTransaction = async (): Promise<SentTransaction> => {

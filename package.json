@@ -10,11 +10,12 @@
     "build:backend": "npm run build --prefix backend",
     "build:frontend": "npm run build --prefix frontend",
     "start": "npm run start --prefix backend",
-    "lint": "npm run lint --prefix frontend && npm run lint --prefix backend",
+    "lint": "npm run lint --prefix frontend && npm run lint --prefix backend && npm run lint:api",
     "install:all": "npm install",
     "postinstall": "npm install --include=dev --prefix backend && npm install --include=dev --prefix frontend",
     "render:backend": "npm install --include=dev --prefix backend && npm run build --prefix backend",
-    "render:frontend": "npm install --include=dev --prefix frontend && npm run build --prefix frontend"
+    "render:frontend": "npm install --include=dev --prefix frontend && npm run build --prefix frontend",
+    "lint:api": "node node_modules/typescript/bin/tsc -p api"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

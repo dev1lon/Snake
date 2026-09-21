@@ -22,8 +22,6 @@ services:
       # ADMIN_ADDRESSES (comma-separated) if you need multiple admins later.
       - key: ADMIN_WALLET_ADDRESS
         sync: false
-      - key: CDP_PAYMASTER_URL
-        sync: false
       # SnakeArcade address. Runs and revive purchases are read back from its
       # events; without it the run endpoints answer 503.
       - key: ARCADE_CONTRACT_ADDRESS

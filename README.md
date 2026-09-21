@@ -26,7 +26,7 @@ to a disposable PostgreSQL database. Tests create and remove their own schema.
 ## Configuration
 
 Every variable is documented in [.env.example](.env.example). Production values
-live in the Render dashboard; the service shape is in [render.yaml](render.yaml).
+live in the hosting dashboard — see [Deployment](#deployment).
 
 Two of them decide how the app behaves rather than just where it points:
 
@@ -37,20 +37,75 @@ Two of them decide how the app behaves rather than just where it points:
   sessions survive restarts. Development can use memory. The backend starts
   listening only after its database schema has initialized successfully.
 
-### RPC with paymaster disabled
+### RPC
 
 In [CDP Node](https://docs.cdp.coinbase.com/data/node/quickstart), choose Base
-Mainnet and copy the endpoint into the backend's `RPC_URL` on Render:
-`https://api.developer.coinbase.com/rpc/v1/base/<client-api-key>`.
-Gas sponsorship is controlled in CDP. `CDP_PAYMASTER_URL` configures the proxy
-endpoint; it does not indicate whether sponsorship is enabled there.
-RPC reads work independently of the sponsorship setting.
-An independently configured Base RPC provider works too.
+Mainnet and copy the endpoint into the backend's `RPC_URL`:
+`https://api.developer.coinbase.com/rpc/v1/base/<client-api-key>`. Any other
+Base provider works too. Every sign-in and every saved run is an RPC call, and
+the public endpoint rate-limits, so this is not optional under real traffic.
 
-For Render Postgres in the same region, use its Internal Database URL for
-`DATABASE_URL`. Enable `DATABASE_SSL` only if that connection requires TLS.
-Existing tables and `recorded_runs` are preserved. Optional `VITE_RPC_URL` is a
-browser-visible, domain-restricted endpoint and requires a frontend rebuild.
+There is no gas sponsorship: players pay their own gas, which on Base is cents
+next to the price of what they are buying.
+
+`DATABASE_SSL=true` is needed for any connection that requires TLS, which
+includes Supabase; a Render Postgres reached over its Internal Database URL does
+not. Existing tables and `recorded_runs` are preserved. Optional `VITE_RPC_URL`
+is a browser-visible, domain-restricted endpoint and requires a frontend rebuild.
+
+## Deployment
+
+The API is one Express app with two entry points, so either host can serve it
+from the same code:
+
+- [backend/src/server.ts](backend/src/server.ts) listens on a port — Render.
+- [api/index.ts](api/index.ts) wraps the app in a function — Vercel.
+
+[backend/src/app.ts](backend/src/app.ts) is everything else, and it starts no
+listener and no timer of its own.
+
+### Vercel (primary)
+
+[vercel.json](vercel.json) builds the frontend to `frontend/dist`, routes
+`/api/*` into the function and falls back to `index.html` for client routes.
+Static files still win over the fallback, so `/gate.html` and the build assets
+serve directly.
+
+Set in the Vercel project: `DATABASE_URL`, `DATABASE_SSL=true`, `RPC_URL`,
+`FRONTEND_ORIGIN`, `BASE_API_KEY`, `ADMIN_WALLET_ADDRESS` and `CRON_SECRET`.
+Leave `VITE_API_URL` unset — the API is same-origin there, which removes the
+CORS preflight and lets the session cookie work in the Base App webview.
+
+Two things a function cannot do, and what replaces them:
+
+- **Timers.** The session sweep is a daily Vercel Cron request to
+  `/api/cron/cleanup`, authorized by `CRON_SECRET`.
+- **Shared memory.** Sign-in nonces live in the database, because the instance
+  that issues one is rarely the instance that verifies the signature. Rate
+  limit counters are still per-instance and therefore weaker than on a single
+  server; the paid endpoints are protected by a session and an onchain
+  transaction rather than by those counters.
+
+### Supabase
+
+Use the **transaction pooler** connection string (port 6543) — a serverless
+function opens far more connections than a direct Postgres connection allows —
+and set `DATABASE_SSL=true`. The schema is created on first boot.
+
+Before switching production over, point the suite at the new database once:
+
+```bash
+SNAKE_TEST_DATABASE_URL="postgresql://..." npm test
+```
+
+That runs the migration and production-startup tests against it for real.
+
+### Render (kept as a fallback)
+
+[render.yaml](render.yaml) still describes the two services and nothing about
+it changed. The service can be suspended rather than deleted: redeploying it
+serves the same API again, with `VITE_API_URL` pointing the frontend at the
+API host.
 
 ## Game modes
 
@@ -117,11 +172,6 @@ gate in any environment, and `/gate.html` is always directly accessible.
 
 ## Security posture
 
-- **Sponsorship.** `/api/paymaster` proxies the CDP paymaster so the API key
-  stays server-side. The contract and call-policy allowlist is configured in
-  CDP; the proxy adds a per-account and a service-wide rate limit on top. It
-  cannot require a session — sponsorship requests come from the wallet, not
-  from our frontend.
 - **Sign-in.** SIWE messages are rejected unless their domain is in the
   allowlist, so a signature produced on another site can't be replayed here.
 - **CORS is not a boundary.** It only decides whether a browser lets a page

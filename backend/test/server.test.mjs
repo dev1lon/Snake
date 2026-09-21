@@ -108,7 +108,7 @@ before(async () => {
   api = `http://127.0.0.1:${port}`;
   backend = spawn(process.execPath, ["dist/server.js"], {
     cwd: fileURLToPath(new URL("../", import.meta.url)),
-    env: { ...process.env, NODE_ENV: databaseUrl ? "production" : "test", FRONTEND_ORIGIN: "http://localhost:5173", PORT: String(port), RPC_URL: `http://127.0.0.1:${rpcPort}`, DATABASE_URL: databaseUrl, DATABASE_SSL: "false", BASE_API_KEY: "", BASE_NOTIFICATIONS_API_KEY: "", CDP_PAYMASTER_URL: `http://127.0.0.1:${rpcPort}`, ARCADE_CONTRACT_ADDRESS: arcade }
+    env: { ...process.env, NODE_ENV: databaseUrl ? "production" : "test", FRONTEND_ORIGIN: "http://localhost:5173", PORT: String(port), RPC_URL: `http://127.0.0.1:${rpcPort}`, DATABASE_URL: databaseUrl, DATABASE_SSL: "false", BASE_API_KEY: "", BASE_NOTIFICATIONS_API_KEY: "", ARCADE_CONTRACT_ADDRESS: arcade }
   });
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("Backend did not start")), 10_000);
@@ -145,13 +145,6 @@ test("production schema migration preserves history and uses full numeric ranges
     AND table_name IN ('runs', 'player_bests') AND column_name IN ('score', 'moves')`, [schema])).rows;
   assert.equal(columns.length, 4);
   for (const column of columns) assert.equal(column.data_type, column.column_name === "score" ? "numeric" : "bigint");
-});
-
-test("provider controls sponsorship independently of RPC reads", async () => {
-  const response = await request("/api/paymaster", { jsonrpc: "2.0", id: 1, method: "pm_getPaymasterData", params: [] });
-  assert.equal(response.status, 200);
-  assert.deepEqual((await response.json()).error, { code: -32000, message: "Sponsorship is disabled in CDP" });
-  assert.equal((await (await request("/api/revives")).json()).balance, 1);
 });
 
 test("parallel distinct spends consume only one available revive; replay does not spend again", async () => {
