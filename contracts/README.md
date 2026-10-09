@@ -2,7 +2,11 @@
 
 ## SnakeArcade (current)
 
-Deployed on Base mainnet at `0xd3a355586a035bAA80eA56d6D8627b0F64141D78`.
+Deployed on Base mainnet at `0xd3a355586a035bAA80eA56d6D8627b0F64141D78`. That
+deployment predates `withdrawAll` and `grantRevives`; replacing it means a new
+address in `VITE_ARCADE_CONTRACT_ADDRESS` and `ARCADE_CONTRACT_ADDRESS`, and
+carrying over the revives players already own — `backend/scripts/arcade-holders.mjs`
+prints exactly which `grantRevives` calls that takes.
 
 `SnakeArcade.sol` records runs and sells revives. It replaces `SnakeRecords`,
 which had no game mode, no level, and no way to charge for anything.
@@ -35,7 +39,14 @@ buyRevivePacks(uint16 packs) payable
 - Revives are counted, not consumed, onchain: `revivesPurchased` only grows. The
   backend counts spends against it, because a transaction per death would cost
   more than a revive is worth.
-- `withdraw(to, amount)` and `transferOwnership(newOwner)` are owner-only.
+- **Taking the money out is one call.** `withdrawAll()` sends the whole
+  balance to the owner and takes no arguments — nothing to fill in, nothing to
+  get wrong. `withdrawAllTo(to)` sends it elsewhere, `withdraw(to, amount)`
+  moves part of it, and `transferOwnership(newOwner)` hands over the keys. All
+  four are owner-only.
+- `grantRevives(player, amount)` credits revives without payment. It exists so
+  that replacing this contract does not erase revives players already bought:
+  the count lives in storage and does not travel. It can only add.
 
 ### Deploying
 

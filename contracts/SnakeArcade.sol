@@ -327,18 +327,45 @@ contract SnakeArcade {
         _setPriceFeed(priceFeed_, maxPriceAge_);
     }
 
+    /// @notice Everything the contract holds, to the owner. No arguments to
+    ///         fill in and no amount to get wrong — the common case is one
+    ///         button. Earnings that arrive a second later wait for the next
+    ///         call.
+    function withdrawAll() external onlyOwner {
+        _withdraw(msg.sender, address(this).balance);
+    }
+
+    /// @notice Everything the contract holds, to somewhere other than the
+    ///         owner's own wallet.
+    function withdrawAllTo(address to) external onlyOwner {
+        _withdraw(to, address(this).balance);
+    }
+
+    /// @notice A specific amount, for when only part of the balance should move.
     function withdraw(address to, uint256 amount) external onlyOwner {
-        if (to == address(0)) {
+        _withdraw(to, amount);
+    }
+
+    /// @notice Credit revives without payment. This exists for one honest
+    ///         reason: when this contract replaces an earlier one, the revives
+    ///         players already paid for sit in the old contract's storage and
+    ///         would otherwise vanish. It also covers support and refunds, and
+    ///         it cannot take revives away.
+    function grantRevives(address player, uint256 amount) external onlyOwner {
+        if (player == address(0)) {
             revert ZeroAddress();
         }
 
-        emit Withdrawn(to, amount);
-
-        (bool sent, ) = to.call{value: amount}("");
-
-        if (!sent) {
-            revert TransferFailed();
+        if (amount == 0) {
+            revert NothingToBuy();
         }
+
+        uint256 total = revivesPurchased[player] + amount;
+        revivesPurchased[player] = total;
+
+        // The same event as a purchase, with paid = 0: the backend counts
+        // revives from this number and needs no new case to handle.
+        emit RevivesPurchased(player, amount, 0, total, block.timestamp);
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
@@ -394,6 +421,20 @@ contract SnakeArcade {
         ethUsdPrice();
 
         emit PriceFeedUpdated(priceFeed_, maxPriceAge_);
+    }
+
+    function _withdraw(address to, uint256 amount) private {
+        if (to == address(0)) {
+            revert ZeroAddress();
+        }
+
+        emit Withdrawn(to, amount);
+
+        (bool sent, ) = to.call{value: amount}("");
+
+        if (!sent) {
+            revert TransferFailed();
+        }
     }
 
     /// Sends back whatever was paid above the price. State is already final
